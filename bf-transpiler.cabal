@@ -1,0 +1,25 @@
+cabal-version:      3.0
+name:               bf-transpiler
+version:            0.1.0.0
+synopsis:           Transpiler to brainf -- fancy
+-- description:
+license:            NONE
+author:             Peter Gow
+maintainer:         petergow@live.com.au
+-- copyright:
+category:           Language
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common warnings
+    ghc-options: -Wall
+
+executable bf-transpiler
+    import:           warnings
+    main-is:          Main.hs
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base ^>=4.15.1.0
+    hs-source-dirs:   app
+    default-language: Haskell2010
