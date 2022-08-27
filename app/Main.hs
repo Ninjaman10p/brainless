@@ -24,6 +24,7 @@ data PrettyPrintStyle = BlockStyle Int
                       | CircleStyle Int
                       | DiscStyle Int
                       | TemplateStyle Text
+                      | NoStyle
                       | Unknown
   deriving Show
 
@@ -93,7 +94,8 @@ main = do
       src <- T.readFile fp
       templateStyle <- sequence . fmap T.readFile $ getStrOpt "template" args
       let style = case getStrOpt "style" args of
-                    Nothing -> blockStyle
+                    Nothing -> NoStyle
+                    Just "none" -> NoStyle
                     Just "block" -> blockStyle
                     Just "circles" -> CircleStyle $ getNumOpt "radius" 10 args
                     Just "template" -> TemplateStyle $ fromMaybe defTemplate templateStyle
@@ -218,6 +220,7 @@ prettyPrint (TemplateStyle template) cs' = changeText (_templatePrint []) cs'
         _templatePrint ('\n':ts) cs = '\n' : _templatePrint ts cs
         _templatePrint (_:ts) (c:cs) = c:_templatePrint ts cs
         _templatePrint [] cs = _templatePrint stemplate cs
+prettyPrint NoStyle cs = cs
 prettyPrint _ _ = error $ "unknown style"
 
 compileBf :: Text -> Text

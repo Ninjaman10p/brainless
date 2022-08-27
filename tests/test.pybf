@@ -14,6 +14,7 @@ print(chr(first_char))
 # For now, I find functions an acceptable alternative
 print("")
 print("The next character after that in the alphabet is is:")
+# Functions can immediately call the results of other functions
 print(chr(add(first_char, 1)))
 
 # If statements exist
@@ -22,15 +23,20 @@ if False:
 if True:
     print("")
     print("I just skipped over a false statement")
+    print("(Check the source code)")
 
-# Functions can immediately call the results of other functions
 print("")
 print("Why don't you talk to yourself for a bit")
-print(input(input(input())))
+print("Type 'nah' to quit")
 
 # We can also use loops
-while not(False):
-    print(input())
+running = True
+while running:
+    last_input = input()
+    if eq(last_input, "nah"):
+        running = False
+    if running:
+        print(last_input)
 
 print("")
 print("Goodbye")
