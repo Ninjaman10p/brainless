@@ -293,6 +293,22 @@ calculateExpr (ESub a b) = do
     (_, _) -> error $ "Cannot subtract " <> show typ <> " and " <> show typ'
   return tgt
 
+calculateExpr (EMul a b) = do
+  a' <- calculateExpr a
+  b' <- calculateExpr b
+  typ <- getVarType a'
+  typ' <- getVarType b'
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      tgt <- allocTmp VInt
+      -- nullify tgt
+      repeatVar b' $
+        repeatVar a' $ do
+          shiftToVar tgt
+          writeBf "+"
+      return tgt
+    (_, _) -> error $ "Cannot multiply " <> show typ <> " by " <> show typ'
+
 calculateExpr (EDiv a b) = do
   a' <- calculateExpr a
   b' <- calculateExpr b
@@ -319,20 +335,6 @@ calculateExpr (EDiv a b) = do
       free zero
       return tgt
     (_, _) -> error $ "Cannot divide " <> show typ <> " by " <> show typ'
-
-calculateExpr (EMul a b) = do
-  a' <- calculateExpr a
-  b' <- calculateExpr b
-  typ <- getVarType a'
-  typ' <- getVarType b'
-  case (typ, typ') of
-    (VInt, VInt) -> do
-      tgt <- allocTmp VInt
-      -- nullify tgt
-      repeatVar b' $
-        setVar tgt $ EAdd (EVar a') (EVar tgt)
-      return tgt
-    (_, _) -> error $ "Cannot multiply " <> show typ <> " by " <> show typ'
 
 calculateExpr (EMod a b) = do
   a' <- calculateExpr a
