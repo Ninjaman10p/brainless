@@ -1,6 +1,7 @@
 # The language is *almost* a subset of python, but not quite:
 # The input command is available, along with
 # regular variable setting
+print(123)
 user_response = input("What would you like to say?")
 
 # The ord and chr commands are available

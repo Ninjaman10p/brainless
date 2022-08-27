@@ -545,18 +545,25 @@ calculateExpr (EStr expr) = do
     case typ of
       VString -> return var
       VInt -> do
+        counter <- makeCopy var
         tgt <- allocTmp VString
         tgtptr <- getVarPointer tgt
-        shiftToVar var
         ten <- calculateExpr $ ENum 10
+        shiftToVar counter
         bfLoop $ do
-          nextChar <- calculateExpr $ EAdd (ENum $ ord '0') (EMod (EVar var) (EVar ten))
-          shiftStrRight tgt
+          nextChar <- calculateExpr $ EAdd (ENum $ ord '0') (EMod (EVar counter) (EVar ten))
+          --- shift string
+          shiftToVar tgt
+          writeBf ">[>]<" -- move to end of string
+          writeBf "[[->+<]<]"
+          --- end shift string
           repeatVar nextChar $ do
             shiftTo $ tgtptr + 1
             writeBf "+"
-          setVar var $ EDiv (EVar var) (EVar ten)
+          setVar counter $ EDiv (EVar counter) (EVar ten)
           free nextChar
+          shiftToVar counter
+        free counter
         free ten
         return tgt
   return tgt
@@ -647,15 +654,6 @@ repeatVar var m = do
         shiftToVar varcpy
         writeBf "-"
     _ -> error $ show typ <> " is not currently iterable"
-
-shiftStrRight :: MonadState ProgState m => Variable -> m ()
-shiftStrRight var = do
-  shiftToVar var
-  writeBf "[>]<" -- move to end of string
-  bfLoop $ do
-    writeBf "[->+<]"
-    writeBf "<" -- move to last unmoved character
-  -- expect: when done, will be at the null char at start of string
 
 decr :: MonadState ProgState m => Variable -> m ()
 decr var = do
@@ -919,6 +917,9 @@ parseExpr expr | isFunCall "chr" expr = do
 parseExpr expr | isFunCall "ord" expr = do
   (a, _) <- uncons $ getFunArgs expr
   return $ EOrd a
+parseExpr expr | isFunCall "str" expr = do
+  (a, _) <- uncons $ getFunArgs expr
+  return $ EStr a
 parseExpr expr | isFunCall "not" expr = do
   (a, _) <- uncons $ getFunArgs expr
   return $ ENot a
