@@ -39,6 +39,9 @@ data Expression = EVar Variable
                 | EChr Expression
                 | EMul Expression Expression
                 | ENot Expression
+                | EEq Expression Expression
+                | EAnd Expression Expression
+                | EOr Expression Expression
   deriving (Show, Eq, Ord)
 
 data VType = VString | VInt
@@ -48,7 +51,6 @@ type Variable = Text
 
 data Command = Print Expression
              | Set Variable Expression
-             | Input Variable
              | While Expression [Command]
              | If Expression [Command]
   deriving (Show, Eq, Ord)
@@ -238,16 +240,6 @@ compileASTM = do
   case p of
     Just p' -> do
       case p' of
-        Input var -> do
-          alloc VString var
-          shiftToVar var
-          newline '-'
-          bfLoop $ do
-            newline '+'
-            writeBf ">,"
-            newline '-'
-          writeBf "<"
-          bfLoop $ writeBf "<"
         Print expr -> do
           var <- calculateExpr expr
           printVar var
@@ -273,7 +265,6 @@ compileASTM = do
           renameVar handle var
       compileASTM
     Nothing -> return ()
-  where newline = writeBf . T.pack . replicate (ord '\n')
 
 printVar :: MonadState ProgState m => Variable -> m ()
 printVar var = do
@@ -295,7 +286,7 @@ calculateExpr :: MonadState ProgState m => Expression -> m Variable
 calculateExpr (EVar var) = return var
 
 calculateExpr (ENot a) = do
-  a' <- calculateExpre a
+  a' <- calculateExpr a
   typ <- getVarType a'
   case typ of
     VInt -> do
@@ -304,6 +295,43 @@ calculateExpr (ENot a) = do
         decr inv
       return inv
     _ -> error $ show typ <> " is not boolean!"
+
+calculateExpr (EAnd a b) = do
+  a' <- calculateExpr a
+  b' <- calculateExpr b
+  typ <- getVarType a'
+  typ' <- getVarType a'
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      tgt <- allocTmp VInt
+      ifVar a' $
+        ifVar b' $ do
+          shiftToVar tgt
+          writeBf "+"
+      return tgt
+    (_, _) -> error $ show typ " cannot be boolean anded with " show typ'
+
+calculateExpr (EOr a b) = do
+  a' <- calculateExpr a
+  b' <- calculateExpr b
+  typ <- getVarType a'
+  typ' <- getVarType a'
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      calculateExpr $ ENot $ EAnd (ENot (EVar a) (EVar b))
+    (_, _) -> error $ show typ " cannot be boolean anded with " show typ'
+
+calculateExpr (EEq a b) = do
+  a' <- calculateExpr a
+  b' <- calculateExpr b
+  typ <- getVarType a'
+  typ' <- getVarType b'
+  if typ == typ'
+    then case typ of
+          VInt -> do
+            error "todo"
+          _ -> error $ "Equality hasn't been implemented for " <> show typ <> " yet"
+    else calculateExpr (Num 0)
 
 calculateExpr (EAdd a b) = do
   a' <- calculateExpr a
@@ -498,6 +526,7 @@ ifVar var m = do
 setVar :: MonadState ProgState m => Variable -> Expression -> m ()
 setVar var expr = do
   pExpr <- calculateExpr expr
+  nullify var
   move pExpr var
   free pExpr
 
@@ -778,6 +807,15 @@ parseExpr expr | isFunCall "ord" expr = do
 parseExpr expr | isFunCall "not" expr = do
   (a, _) <- uncons $ getFunArgs expr
   return $ ENot a
+parseExpr expr | isFunCall "eq" expr = do
+  (a, _) <- uncons $ getFunArgs expr
+  return $ EEq a
+parseExpr expr | isFunCall "or" expr = do
+  (a, _) <- uncons $ getFunArgs expr
+  return $ EOr a
+parseExpr expr | isFunCall "and" expr = do
+  (a, _) <- uncons $ getFunArgs expr
+  return $ EAnd a
 parseExpr expr | isVString expr = Just . EString . T.tail . T.init $ expr
 parseExpr num | T.foldr ((&&) . isDigit) True num = Just . ENum . read . T.unpack $ num
 parseExpr var = Just $ EVar var
