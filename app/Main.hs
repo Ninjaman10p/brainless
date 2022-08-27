@@ -340,13 +340,7 @@ calculateExpr (EOr a b) = do
       calculateExpr $ ENot $ EAnd (ENot (EVar a')) (ENot (EVar b'))
     (_, _) -> error $ show typ <> " cannot be boolean anded with " <> show typ'
 
-calculateExpr (ELt a b) = calculateExpr $ EAnd (ELeq a b) (ENot (EGeq a b))
-
-calculateExpr (EGt a b) = calculateExpr $ EAnd (EGeq a b) (ENot (ELeq a b))
-
-calculateExpr (ELeq a b) = calculateExpr (EGeq b a)
-
-calculateExpr (EGeq a b) = do
+calculateExpr (ELt a b) = do
   a' <- calculateExpr a
   b' <- calculateExpr b
   typ <- getVarType a'
@@ -358,7 +352,7 @@ calculateExpr (EGeq a b) = do
         tmp <- makeCopy b'
         repeatVar a' $ do
           decr tmp
-        calculateExpr $ ENot (EVar tmp)
+        return tmp
       VString -> do
         acpy <- makeCopy a'
         bcpy <- makeCopy b'
@@ -385,9 +379,15 @@ calculateExpr (EGeq a b) = do
         free acpy
         free bcpy
         free tmp
-        calculateExpr $ ENot (EVar tgt)
+        return tgt
       _ -> error $ "Ordering hasn't been implemented for " <> show typ <> " yet"
-  else calculateExpr (ENum 0)
+  else error $ "Can only compare values of the same type"
+
+calculateExpr (EGt a b) = calculateExpr $ EAnd (EGeq a b) (ENot (ELeq a b))
+
+calculateExpr (ELeq a b) = calculateExpr (EGeq b a)
+
+calculateExpr (EGeq a b) = calculateExpr $ ENot (ELt a b)
 
 calculateExpr (EEq a b) = do
   a' <- calculateExpr a
@@ -410,8 +410,7 @@ calculateExpr (EAdd a b) = do
         shiftToVar tgt
         writeBf "+"
       return tgt
-    (VString, VString) -> do -- string concatenation
-      -- Compile times go brrrrr
+    (VString, VString) -> do
       tgt <- makeCopy a'
       bcpy <- makeCopy b'
       bptr <- getVarPointer bcpy
