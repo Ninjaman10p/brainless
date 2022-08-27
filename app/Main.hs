@@ -179,8 +179,8 @@ getStrOpt str (_:args) = getStrOpt str args
 getStrOpt _ [] = Nothing
 
 getBoolOpt :: String -> Bool -> [String] -> Bool
-getBoolOpt cs _ (arg:args) | arg == "--" <> cs = getBoolOpt cs True args 
-getBoolOpt cs _ (arg:args) | arg == "--no-" <> cs = getBoolOpt cs False args 
+getBoolOpt cs _ (arg:args) | arg == "--" <> cs = getBoolOpt cs True args
+getBoolOpt cs _ (arg:args) | arg == "--no-" <> cs = getBoolOpt cs False args
 getBoolOpt cs b (_:args) = getBoolOpt cs b args
 getBoolOpt _ b [] = b
 
@@ -366,7 +366,7 @@ calculateExpr (EGeq a b) = do
         bptr <- getVarPointer bcpy
         tmp <- allocTmp VInt
         tgt <- allocTmp VInt
-        
+
         size <- sizeOf VString
         forM_ [1..size - 2] $ \n -> do
           shiftTo $ bptr + n
@@ -415,31 +415,26 @@ calculateExpr (EAdd a b) = do
       tgt <- makeCopy a'
       bcpy <- makeCopy b'
       bptr <- getVarPointer bcpy
-      
+
       size <- sizeOf VString
-      forM_ [1..size - 2] $ \n -> do
+
+      shiftTo $ bptr + 1
+      bfLoop $ do
         shiftToVar tgt
         writeBf ">[>]+[<]"
-        shiftTo $ bptr + n
+        shiftTo $ bptr + 1
         bfLoop $ do
           shiftToVar tgt
           writeBf ">[>]<+[<]"
-          shiftTo $ bptr + n
+          shiftTo $ bptr + 1
           writeBf "-"
         shiftToVar tgt
         writeBf ">[>]<-<[<]"
 
-      -- forM_ [1..sizeOf VString - 2] $ \n -> do
-        -- shiftToVar tgt
-        -- writeBf ">[>]+[<]" -- assert: doesn't change pos
-        -- shiftTo $ bptr + n
-        -- bfLoop $ do -- check that this satisfies precond
-          -- shiftToVar tgt
-          -- writeBf ">[>]<+[<]" -- as long as not overflowing
-          -- shiftTo $ bptr + n
-          -- writeBf "-"
-        -- shiftToVar tgt
-        -- writeBf ">[>]<-[<]" -- undo the additional point
+        shiftToVar $ bcpy
+        writeBf ">>[[-<+>]>]<<[<]"
+        shiftTo $ bptr + 1
+
       free bcpy
       return tgt
     (_, _) -> error $ "Cannot add " <> show typ <> " and " <> show typ'
@@ -567,7 +562,7 @@ calculateExpr (EStr expr) = do
         free ten
         return tgt
   return tgt
-  
+
 calculateExpr (ENum num) = do
   -- if num <= 12
     -- then do
