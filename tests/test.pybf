@@ -1,3 +1,4 @@
+# The language is *almost* a subset of python, but not quite:
 # The input command is available, along with
 # regular variable setting
 user_response = input("What would you like to say?")
@@ -10,14 +11,26 @@ print(chr(first_char))
 
 # To add we can use the add function
 # Possible extension: add infix operators
+# For now, I find functions an acceptable alternative
 print("")
 print("The next character after that in the alphabet is is:")
 print(chr(add(first_char, 1)))
+
+# If statements exist
+if False:
+    print("You should never see this")
+if True:
+    print("")
+    print("I just skipped over a false statement")
 
 # Functions can immediately call the results of other functions
 print("")
 print("Why don't you talk to yourself for a bit")
 print(input(input(input())))
+
+# We can also use loops
+while not(False):
+    print(input())
 
 print("")
 print("Goodbye")

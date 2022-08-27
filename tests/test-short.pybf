@@ -1,0 +1,5 @@
+# The input command is available, along with
+# regular variable setting
+user_response = input("What would you like to say?")
+print(chr(ord(user_response)))
+
