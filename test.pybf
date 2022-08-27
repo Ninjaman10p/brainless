@@ -1,0 +1,23 @@
+# The input command is available, along with
+# regular variable setting
+user_response = input("What would you like to say?")
+
+# The ord and chr commands are available
+print("")
+first_char = ord(user_response)
+print("The first letter of what you said was:")
+print(chr(first_char))
+
+# To add we can use the add function
+# Possible extension: add infix operators
+print("")
+print("The next character after that in the alphabet is is:")
+print(chr(add(first_char, 1)))
+
+# Functions can immediately call the results of other functions
+print("")
+print("Why don't you talk to yourself for a bit")
+print(input(input(input())))
+
+print("")
+print("Goodbye")
