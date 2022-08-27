@@ -18,6 +18,7 @@ import Control.Concurrent (threadDelay)
 import Safe (readMay, headMay)
 import Data.List
 import Control.Applicative
+import Data.List.Extra (firstJust)
 
 data PrettyPrintStyle = BlockStyle Int
                       | CircleStyle Int
@@ -39,6 +40,10 @@ data Expression = EVar Variable
                 | EChr Expression
                 | EMul Expression Expression
                 | ENot Expression
+                | EGeq Expression Expression
+                | ELeq Expression Expression
+                | EGt Expression Expression
+                | ELt Expression Expression
                 | EEq Expression Expression
                 | EAnd Expression Expression
                 | EOr Expression Expression
@@ -247,11 +252,12 @@ compileASTM = do
           cmds <- view astInput <$> get
           modify $ set astInput prog
           res <- calculateExpr expr
+          typ <- getVarType res
           shiftToVar res
           bfLoop $ do
             compileASTM
-            res' <- calculateExpr expr
-            shiftToVar res'
+            setVar res expr
+            shiftToVar res
           modify $ set astInput cmds
         If expr prog -> do
           cmds <- view astInput <$> get
@@ -261,8 +267,12 @@ compileASTM = do
             compileASTM
           modify $ set astInput cmds
         Set var expr -> do
-          handle <- calculateExpr expr
-          renameVar handle var
+          setVar var expr
+          -- handle <- calculateExpr expr
+          -- typ <- getVarType handle
+          -- alloc typ var
+          -- move handle var
+          -- free handle
       compileASTM
     Nothing -> return ()
 
@@ -283,7 +293,7 @@ printVar var = do
 
 -- calculate the value of an expession, and return a pointer to the result
 calculateExpr :: MonadState ProgState m => Expression -> m Variable
-calculateExpr (EVar var) = return var
+calculateExpr (EVar var) = makeCopy var
 
 calculateExpr (ENot a) = do
   a' <- calculateExpr a
@@ -309,7 +319,7 @@ calculateExpr (EAnd a b) = do
           shiftToVar tgt
           writeBf "+"
       return tgt
-    (_, _) -> error $ show typ " cannot be boolean anded with " show typ'
+    (_, _) -> error $ show typ <> " cannot be boolean anded with " <> show typ'
 
 calculateExpr (EOr a b) = do
   a' <- calculateExpr a
@@ -318,8 +328,57 @@ calculateExpr (EOr a b) = do
   typ' <- getVarType a'
   case (typ, typ') of
     (VInt, VInt) -> do
-      calculateExpr $ ENot $ EAnd (ENot (EVar a) (EVar b))
-    (_, _) -> error $ show typ " cannot be boolean anded with " show typ'
+      calculateExpr $ ENot $ EAnd (ENot (EVar a')) (ENot (EVar b'))
+    (_, _) -> error $ show typ <> " cannot be boolean anded with " <> show typ'
+
+calculateExpr (ELt a b) = calculateExpr $ EAnd (ELeq a b) (ENot (EGeq a b))
+
+calculateExpr (EGt a b) = calculateExpr $ EAnd (EGeq a b) (ENot (ELeq a b))
+
+calculateExpr (ELeq a b) = calculateExpr (EGeq b a)
+
+calculateExpr (EGeq a b) = do
+  a' <- calculateExpr a
+  b' <- calculateExpr b
+  typ <- getVarType a'
+  typ' <- getVarType b'
+  if typ == typ'
+  then
+    case typ of
+      VInt -> do
+        tmp <- makeCopy b'
+        repeatVar a' $ do
+          decr tmp
+        calculateExpr $ ENot (EVar tmp)
+      VString -> do
+        acpy <- makeCopy a'
+        bcpy <- makeCopy b'
+        aptr <- getVarPointer acpy
+        bptr <- getVarPointer bcpy
+        tmp <- allocTmp VInt
+        tgt <- allocTmp VInt
+        
+        size <- sizeOf VString
+        forM_ [1..size - 2] $ \n -> do
+          shiftTo $ bptr + n
+          bfLoop $ do
+            shiftToVar tmp
+            writeBf "+"
+            shiftTo $ bptr + n
+            writeBf "-"
+          shiftTo $ aptr + n
+          bfLoop $ do
+            decr tmp
+            shiftTo $ aptr + n
+            writeBf "-"
+          move tmp tgt
+
+        free acpy
+        free bcpy
+        free tmp
+        calculateExpr $ ENot (EVar tgt)
+      _ -> error $ "Ordering hasn't been implemented for " <> show typ <> " yet"
+  else calculateExpr (ENum 0)
 
 calculateExpr (EEq a b) = do
   a' <- calculateExpr a
@@ -327,33 +386,61 @@ calculateExpr (EEq a b) = do
   typ <- getVarType a'
   typ' <- getVarType b'
   if typ == typ'
-    then case typ of
-          VInt -> calculateExpr $ ENot $ ESub (EVar a) (EVar b)
-          _ -> error $ "Equality hasn't been implemented for " <> show typ <> " yet"
-    else calculateExpr (Num 0)
+  then calculateExpr $ EAnd (EGeq (EVar a') (EVar b')) (EGeq (EVar b') (EVar a'))
+  else calculateExpr (ENum 0)
 
 calculateExpr (EAdd a b) = do
   a' <- calculateExpr a
   b' <- calculateExpr b
   typ <- getVarType a'
   typ' <- getVarType b'
-  tgt <- allocTmp typ
-  copy a' tgt
   case (typ, typ') of
     (VInt, VInt) -> do
+      tgt <- makeCopy a'
       repeatVar b' $ do
         shiftToVar tgt
         writeBf "+"
+      return tgt
+    (VString, VString) -> do -- string concatenation
+      -- Compile times go brrrrr
+      tgt <- makeCopy a'
+      bcpy <- makeCopy b'
+      bptr <- getVarPointer bcpy
+      
+      size <- sizeOf VString
+      forM_ [1..size - 2] $ \n -> do
+        shiftToVar tgt
+        writeBf ">[>]+[<]"
+        shiftTo $ bptr + n
+        bfLoop $ do
+          shiftToVar tgt
+          writeBf ">[>]<+[<]"
+          shiftTo $ bptr + n
+          writeBf "-"
+        shiftToVar tgt
+        writeBf ">[>]<-<[<]"
+
+      -- forM_ [1..sizeOf VString - 2] $ \n -> do
+        -- shiftToVar tgt
+        -- writeBf ">[>]+[<]" -- assert: doesn't change pos
+        -- shiftTo $ bptr + n
+        -- bfLoop $ do -- check that this satisfies precond
+          -- shiftToVar tgt
+          -- writeBf ">[>]<+[<]" -- as long as not overflowing
+          -- shiftTo $ bptr + n
+          -- writeBf "-"
+        -- shiftToVar tgt
+        -- writeBf ">[>]<-[<]" -- undo the additional point
+      free bcpy
+      return tgt
     (_, _) -> error $ "Cannot add " <> show typ <> " and " <> show typ'
-  return tgt
 
 calculateExpr (ESub a b) = do
   a' <- calculateExpr a
   b' <- calculateExpr b
   typ <- getVarType a'
   typ' <- getVarType b'
-  tgt <- allocTmp typ
-  copy a' tgt
+  tgt <- makeCopy a'
   case (typ, typ') of
     (VInt, VInt) -> do
       repeatVar b' $ do
@@ -370,7 +457,6 @@ calculateExpr (EMul a b) = do
   case (typ, typ') of
     (VInt, VInt) -> do
       tgt <- allocTmp VInt
-      -- nullify tgt
       repeatVar b' $
         repeatVar a' $ do
           shiftToVar tgt
@@ -385,10 +471,8 @@ calculateExpr (EDiv a b) = do
   typ' <- getVarType b'
   case (typ, typ') of
     (VInt, VInt) -> do
-      acpy <- allocTmp VInt
+      acpy <- makeCopy a'
       tgt <- allocTmp VInt
-      nullify tgt
-      copy a' acpy
       shiftToVar acpy
       writeBf "+"
       bfLoop $ do -- loop on a
@@ -420,15 +504,9 @@ calculateExpr (EChr expr) = do
       VInt -> do
         tgt <- allocTmp VString
         tgtptr <- getVarPointer tgt
-        varcpy <- allocTmp VInt
-        copy var varcpy
-        shiftToVar varcpy
-        bfLoop $ do
-          writeBf "-"
+        repeatVar var $ do
           shiftTo $ tgtptr + 1
           writeBf "+"
-          shiftToVar varcpy
-        free varcpy
         return tgt
   return tgt
 
@@ -440,8 +518,7 @@ calculateExpr (EOrd expr) = do
       VInt -> error "Can only cast character to character code"
       VString -> do
         tgt <- allocTmp VInt
-        varcpy <- allocTmp VString
-        copy var varcpy
+        varcpy <- makeCopy var
         varptr <- getVarPointer varcpy
         shiftTo $ varptr + 1
         bfLoop $ do
@@ -469,22 +546,26 @@ calculateExpr (EStr expr) = do
           repeatVar nextChar $ do
             shiftTo $ tgtptr + 1
             writeBf "+"
-          remainder <- calculateExpr $ EDiv (EVar var) (EVar ten)
-          nullify var
-          move remainder var
-          free remainder
+          setVar var $ EDiv (EVar var) (EVar ten)
           free nextChar
         free ten
         return tgt
-  free var
   return tgt
   
-
 calculateExpr (ENum num) = do
-  tgt <- allocTmp VInt
-  shiftToVar tgt
-  sequence_ $ replicate num $ writeBf "+"
-  return tgt
+  -- if num <= 12
+    -- then do
+      tgt <- allocTmp VInt
+      shiftToVar tgt
+      sequence_ $ replicate num $ writeBf "+"
+      return tgt
+    -- else
+      -- if isPrime num
+        -- then calculateExpr $ EAdd (ENum 3) (ENum (num - 3))
+        -- else fromMaybe (calculateExpr $ EAdd (ENum 1) (ENum (num - 1))) $
+          -- fmap (\x -> calculateExpr $ EMul (ENum x) (ENum $ quot num x)) $
+            -- firstJust (\x -> if mod num x == 0 && x >= 2 then Just x else Nothing) $
+            -- [2..num]
 
 calculateExpr (EInput Nothing) = do
   let newline = writeBf . T.pack . replicate (ord '\n')
@@ -495,8 +576,7 @@ calculateExpr (EInput Nothing) = do
     newline '+'
     writeBf ">,"
     newline '-'
-  writeBf "<"
-  bfLoop $ writeBf "<"
+  writeBf "<[<]"
   return var
 calculateExpr (EInput (Just expr)) = do
   v0 <- calculateExpr expr
@@ -522,12 +602,21 @@ ifVar var m = do
   move tmp var
   free tmp
 
+makeCopy :: MonadState ProgState m => Variable -> m Variable
+makeCopy var = do
+  typ <- getVarType var
+  tgt <- allocTmp typ
+  copy var tgt
+  return tgt
+
 setVar :: MonadState ProgState m => Variable -> Expression -> m ()
 setVar var expr = do
   pExpr <- calculateExpr expr
+  typ <- getVarType pExpr
+  -- tmp <- move pExpr
+  alloc typ var
   nullify var
   move pExpr var
-  free pExpr
 
 nullify :: MonadState ProgState m => Variable -> m ()
 nullify var = do
@@ -535,21 +624,20 @@ nullify var = do
   typ <- getVarType var
   case typ of
     VInt -> writeBf "[-]"
-    VString -> writeBf "[>]<[[-]<]"
+    VString -> writeBf ">[>]<[[-]<]"
 
 repeatVar :: MonadState ProgState m => Variable -> m () -> m ()
 repeatVar var m = do
   typ <- getVarType var
   case typ of
     VInt -> do
-      varcpy <- allocTmp typ
-      copy var varcpy
+      varcpy <- makeCopy var
       shiftToVar varcpy
       bfLoop $ do
         m
         shiftToVar varcpy
         writeBf "-"
-    t -> error $ show t <> " is not currently iterable"
+    _ -> error $ show typ <> " is not currently iterable"
 
 shiftStrRight :: MonadState ProgState m => Variable -> m ()
 shiftStrRight var = do
@@ -602,7 +690,8 @@ alloc typ var = do
   case st^.vars.at var of
     Nothing -> do
       modify $ set (vars.at var) $ Just (typ, st^.allocPtr)
-      modify $ over allocPtr (+sizeOf typ)
+      size <- sizeOf typ
+      modify $ over allocPtr (+size)
     Just (oldtyp, _) ->
       when (oldtyp /= typ) $ do
         free var
@@ -616,17 +705,32 @@ copy src tgt = do
   ps <- getVarPointer src
   pt <- getVarPointer tgt
   p0 <- getVarPointer tmp
-  forM_ [0..(sizeOf typ) - 1] $ \n -> do
+  size <- sizeOf typ
+  forM_ [0..size - 1] $ \n -> do
     shiftTo (ps + n)
     bfLoop $ do
-      writeBf "-"
       shiftTo (p0 + n)
       writeBf "+"
       shiftTo (pt + n)
       writeBf "+"
       shiftTo (ps + n)
+      writeBf "-"
   move tmp src
   free tmp
+
+move :: MonadState ProgState m => Variable -> Variable -> m ()
+move src tgt = do
+  typ <- getVarType src
+  ps <- getVarPointer src
+  pt <- getVarPointer tgt
+  size <- sizeOf typ
+  forM_ [0..size - 1] $ \n -> do
+    shiftTo (ps + n)
+    bfLoop $ do
+      shiftTo (pt + n)
+      writeBf "+"
+      shiftTo (ps + n)
+      writeBf "-"
 
 -- Precondition: m does not shift pointerLoc
 bfLoop :: MonadState ProgState m => m () -> m ()
@@ -641,23 +745,9 @@ renameVar src tgt = do
   modify $ set (vars.at tgt) $ Just v
   modify $ set (vars.at src) $ Nothing
 
-move :: MonadState ProgState m => Variable -> Variable -> m ()
-move src tgt = do
-  typ <- getVarType src
-  ps <- getVarPointer src
-  pt <- getVarPointer tgt
-  forM_ [0..(sizeOf typ) - 1] $ \n -> do
-    shiftTo (ps + n)
-    bfLoop $ do
-      writeBf "-"
-      shiftTo (pt + n)
-      writeBf "+"
-      shiftTo (ps + n)
-  shiftToVar src
-
-sizeOf :: VType -> Int
-sizeOf VString = 64
-sizeOf VInt = 1
+sizeOf :: MonadState ProgState m => VType -> m Int
+sizeOf VString = return 64
+sizeOf VInt = return 1
 
 allocTmp :: MonadState ProgState m => VType -> m Variable
 allocTmp typ = do
@@ -665,12 +755,13 @@ allocTmp typ = do
   let var = tmpVar (st^.tempVarPtr)
   alloc typ var
   modify $ over tempVarPtr (+1)
+  nullify var
   return var
 
 -- does nothing for now
 -- later on can optimise
 free :: MonadState ProgState m => Variable -> m ()
-free var = return ()
+free var = modify $ set (vars.at var) Nothing
   -- nullify var
 
 writeBf :: MonadState ProgState m => Text -> m ()
@@ -806,15 +897,34 @@ parseExpr expr | isFunCall "ord" expr = do
 parseExpr expr | isFunCall "not" expr = do
   (a, _) <- uncons $ getFunArgs expr
   return $ ENot a
-parseExpr expr | isFunCall "eq" expr = do
-  (a, _) <- uncons $ getFunArgs expr
-  return $ EEq a
-parseExpr expr | isFunCall "or" expr = do
-  (a, _) <- uncons $ getFunArgs expr
-  return $ EOr a
 parseExpr expr | isFunCall "and" expr = do
-  (a, _) <- uncons $ getFunArgs expr
-  return $ EAnd a
+  (a, r1) <- uncons $ getFunArgs expr
+  (b, _) <- uncons r1
+  return $ EAnd a b
+parseExpr expr | isFunCall "eq" expr = do
+  (a, r1) <- uncons $ getFunArgs expr
+  (b, _) <- uncons r1
+  return $ EEq a b
+parseExpr expr | isFunCall "geq" expr = do
+  (a, r1) <- uncons $ getFunArgs expr
+  (b, _) <- uncons r1
+  return $ EGeq a b
+parseExpr expr | isFunCall "leq" expr = do
+  (a, r1) <- uncons $ getFunArgs expr
+  (b, _) <- uncons r1
+  return $ ELeq a b
+parseExpr expr | isFunCall "gt" expr = do
+  (a, r1) <- uncons $ getFunArgs expr
+  (b, _) <- uncons r1
+  return $ EGt a b
+parseExpr expr | isFunCall "lt" expr = do
+  (a, r1) <- uncons $ getFunArgs expr
+  (b, _) <- uncons r1
+  return $ ELt a b
+parseExpr expr | isFunCall "or" expr = do
+  (a, r1) <- uncons $ getFunArgs expr
+  (b, _) <- uncons r1
+  return $ EOr a b
 parseExpr expr | isVString expr = Just . EString . T.tail . T.init $ expr
 parseExpr num | T.foldr ((&&) . isDigit) True num = Just . ENum . read . T.unpack $ num
 parseExpr var = Just $ EVar var
@@ -831,3 +941,6 @@ isVString cs = fromMaybe False $ do
 
 changeText :: (String -> String) -> Text -> Text
 changeText f = T.pack . f . T.unpack
+
+isPrime :: Int -> Bool
+isPrime n = not $ foldr ((||) . (== 0) . (quot n)) False [2..n-1]

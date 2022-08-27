@@ -1,0 +1,8 @@
+if geq("aaa", "AAA"):
+    print("aaa ≥ AAA")
+
+if eq("aaa", "aaa"):
+    print("aaa ≅ aaa")
+
+if eq("aaa", "aab"):
+    print("aaa ≅ aab")
