@@ -35,7 +35,7 @@ data Expression = EVar Variable
                 | EDiv Expression Expression
                 | EMod Expression Expression
                 | EStr Expression
-                | EInt Expression
+                | EOrd Expression
                 | EChr Expression
                 | EMul Expression Expression
   deriving (Show, Eq, Ord)
@@ -48,6 +48,7 @@ type Variable = Text
 data Command = Print Expression
              | Set Variable Expression
              | Input Variable
+             | While Expression [Command]
   deriving (Show, Eq, Ord)
 
 type Program = [Command]
@@ -237,6 +238,13 @@ compileASTM = do
         Print expr -> do
           var <- calculateExpr expr
           printVar var
+        While expr prog -> do
+          cmds <- view astInput <$> get
+          modify $ set astInput prog
+          res <- calculateExpr expr
+          bfLoop $ do
+            compileASTM
+          modify $ set astInput cmds
         Set var expr -> do
           handle <- calculateExpr expr
           renameVar handle var
@@ -363,6 +371,26 @@ calculateExpr (EChr expr) = do
         return tgt
   return tgt
 
+calculateExpr (EOrd expr) = do
+  var <- calculateExpr expr
+  typ <- getVarType var
+  tgt <-
+    case typ of
+      VInt -> error "Can only cast character to character code"
+      VString -> do
+        tgt <- allocTmp VInt
+        varcpy <- allocTmp VString
+        copy var varcpy
+        varptr <- getVarPointer varcpy
+        shiftTo $ varptr + 1
+        bfLoop $ do
+          shiftToVar tgt
+          writeBf "+"
+          shiftTo $ varptr + 1
+          writeBf "-"
+        return tgt
+  return tgt
+
 calculateExpr (EStr expr) = do
   var <- calculateExpr expr
   typ <- getVarType var
@@ -377,13 +405,11 @@ calculateExpr (EStr expr) = do
         bfLoop $ do
           nextChar <- calculateExpr $ EAdd (ENum $ ord '0') (EMod (EVar var) (EVar ten))
           shiftStrRight tgt
-          shiftToVar nextChar
-          bfLoop $ do
-            writeBf "-"
+          repeatVar nextChar $ do
             shiftTo $ tgtptr + 1
             writeBf "+"
-            shiftToVar nextChar
           remainder <- calculateExpr $ EDiv (EVar var) (EVar ten)
+          nullify var
           move remainder var
           free remainder
           free nextChar
@@ -391,8 +417,7 @@ calculateExpr (EStr expr) = do
         return tgt
   free var
   return tgt
-
-calculateExpr (EInt expr) = error "todo"
+  
 
 calculateExpr (ENum num) = do
   tgt <- allocTmp VInt
@@ -569,7 +594,7 @@ move src tgt = do
   shiftToVar src
 
 sizeOf :: VType -> Int
-sizeOf VString = 32
+sizeOf VString = 64
 sizeOf VInt = 1
 
 allocTmp :: MonadState ProgState m => VType -> m Variable
@@ -623,6 +648,8 @@ parseExec cmd | isFunCall "print" cmd = fromMaybe [] $ do
   pExpr <- headMay $ getFunArgs cmd
   return $
     [ Print pExpr ]
+parseExec cmd | T.strip cmd == "" = []
+parseExec cmd | T.head (T.strip cmd) == '#' = []
 parseExec cmd = error $ "Invalid syntax: " <> show cmd
 
 isFunCall :: Text -> Text -> Bool
@@ -685,6 +712,9 @@ parseExpr expr | isFunCall "mod" expr = do
 parseExpr expr | isFunCall "chr" expr = do
   (a, _) <- uncons $ getFunArgs expr
   return $ EChr a
+parseExpr expr | isFunCall "ord" expr = do
+  (a, _) <- uncons $ getFunArgs expr
+  return $ EOrd a
 parseExpr expr | isVString expr = Just . EString . T.tail . T.init $ expr
 parseExpr num | T.foldr ((&&) . isDigit) True num = Just . ENum . read . T.unpack $ num
 parseExpr var = Just $ EVar var
