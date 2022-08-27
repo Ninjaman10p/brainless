@@ -328,8 +328,7 @@ calculateExpr (EEq a b) = do
   typ' <- getVarType b'
   if typ == typ'
     then case typ of
-          VInt -> do
-            error "todo"
+          VInt -> calculateExpr $ ENot $ ESub (EVar a) (EVar b)
           _ -> error $ "Equality hasn't been implemented for " <> show typ <> " yet"
     else calculateExpr (Num 0)
 
