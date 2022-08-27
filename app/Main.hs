@@ -38,6 +38,7 @@ data Expression = EVar Variable
                 | EOrd Expression
                 | EChr Expression
                 | EMul Expression Expression
+                | ENot Expression
   deriving (Show, Eq, Ord)
 
 data VType = VString | VInt
@@ -49,6 +50,7 @@ data Command = Print Expression
              | Set Variable Expression
              | Input Variable
              | While Expression [Command]
+             | If Expression [Command]
   deriving (Show, Eq, Ord)
 
 type Program = [Command]
@@ -66,7 +68,7 @@ $(makeLenses ''ProgState)
 data ParseState = ParseState
   { _tInput :: Text
   , _astOutput :: Program
-  , _iLevel :: Int
+  , _iStack :: [Program -> Program]
   }
 $(makeLenses ''ParseState)
 
@@ -94,9 +96,10 @@ main = do
                     Just _ -> Unknown
       let delay = getNumOpt "delay" 0 args
       let compiled = prettyPrint style $ compileBf src
-      forM_ (T.lines compiled) $ \line -> do
-        threadDelay delay
-        T.putStrLn line
+      when (not (getBoolOpt "silent" False args)) $
+        forM_ (T.lines compiled) $ \line -> do
+          threadDelay delay
+          T.putStrLn line
       case getStrOpt "outfile" args of
         Just ofp -> T.writeFile ofp compiled
         Nothing -> return ()
@@ -143,11 +146,13 @@ helpMessage progname = unlines
   , "  --style=STYLE: pretty print the code in the chosen style (default: block)"
   , "  --block-width: width of the block when printing with block style"
   , "  --radius: the radius of each circle when using circles or discs style"
+  , "  --silent: supress output (default: off)"
   , ""
   , "STYLES:"
-  , "  block: just print it as a chunk of text"
+  , "  block (default): just print it as a chunk of text"
   , "  circles: print the code in circles"
   , "  discs: like circles, but filled in"
+  , "  dna[-curtains]: DNA strands"
   ]
 
 getNumOpt :: String -> Int -> [String] -> Int
@@ -159,6 +164,12 @@ getStrOpt str (arg:args)
     where (var, expr) = second tail $ break (=='=') $ drop 2 arg
 getStrOpt str (_:args) = getStrOpt str args
 getStrOpt _ [] = Nothing
+
+getBoolOpt :: String -> Bool -> [String] -> Bool
+getBoolOpt cs _ (arg:args) | arg == "--" <> cs = getBoolOpt cs True args 
+getBoolOpt cs _ (arg:args) | arg == "--no-" <> cs = getBoolOpt cs False args 
+getBoolOpt cs b (_:args) = getBoolOpt cs b args
+getBoolOpt _ b [] = b
 
 getFileTarget :: [String] -> Maybe String
 getFileTarget (('-':'-':_):css) = getFileTarget css
@@ -221,6 +232,8 @@ compileAST p = view bfOutput . execState compileASTM $  ProgState
 
 compileASTM :: MonadState ProgState m => m ()
 compileASTM = do
+  -- errorTmp <- view astInput <$> get
+  -- error $ show errorTmp
   p <- popCmd
   case p of
     Just p' -> do
@@ -242,7 +255,17 @@ compileASTM = do
           cmds <- view astInput <$> get
           modify $ set astInput prog
           res <- calculateExpr expr
+          shiftToVar res
           bfLoop $ do
+            compileASTM
+            res' <- calculateExpr expr
+            shiftToVar res'
+          modify $ set astInput cmds
+        If expr prog -> do
+          cmds <- view astInput <$> get
+          modify $ set astInput prog
+          res <- calculateExpr expr
+          ifVar res $ do
             compileASTM
           modify $ set astInput cmds
         Set var expr -> do
@@ -270,6 +293,17 @@ printVar var = do
 -- calculate the value of an expession, and return a pointer to the result
 calculateExpr :: MonadState ProgState m => Expression -> m Variable
 calculateExpr (EVar var) = return var
+
+calculateExpr (ENot a) = do
+  a' <- calculateExpre a
+  typ <- getVarType a'
+  case typ of
+    VInt -> do
+      inv <- calculateExpr $ ENum 1
+      ifVar a' $ do
+        decr inv
+      return inv
+    _ -> error $ show typ <> " is not boolean!"
 
 calculateExpr (EAdd a b) = do
   a' <- calculateExpr a
@@ -622,19 +656,50 @@ parseSource :: Text -> Program
 parseSource cs = view astOutput . execState parseSourceM $ ParseState
   { _tInput = cs
   , _astOutput = []
-  , _iLevel = 0
+  , _iStack = []
   }
 
 parseSourceM :: MonadState ParseState m => m ()
 parseSourceM = do
   st <- get
   let (line, ls) = second (fromMaybe "" . fmap snd . T.uncons) . T.breakOn "\n" $ st^.tInput
-  modify $ over astOutput (<> parseLine line)
-  if T.strip ls == ""
-    then return ()
+  let expectedIndent = 4 * length (st^.iStack)
+  if T.take expectedIndent line == T.pack (replicate expectedIndent ' ')
+    then do
+      parseLineM (T.strip line)
+      if T.strip ls == ""
+        then do
+          -- Return out of the recursion: force flattening
+          out <- view astOutput <$> get
+          modify $ set astOutput $ foldl (flip ($)) out (st^.iStack)
+        else do
+          modify $ set tInput ls
+          parseSourceM
     else do
-      modify $ set tInput ls
+      let (f:fs) = st^.iStack
+      modify $ over astOutput f
+      modify $ over iStack $ drop 1
       parseSourceM
+
+parseLineM :: MonadState ParseState m => Text -> m ()
+parseLineM line | T.take 6 line == "while " = do
+  st <- get
+  let expr = parseExpr $ T.dropEnd 1 . T.drop 6 . T.strip $ line
+  case expr of
+    Nothing -> error "Could not parse expression in while statement"
+    Just pExpr -> do
+      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . (While pExpr)
+      modify $ set astOutput []
+parseLineM line | T.take 3 line == "if " = do
+  st <- get
+  let expr = parseExpr $ T.dropEnd 1 . T.drop 3 . T.strip $ line
+  case expr of
+    Nothing -> error "Could not parse expression in if statement"
+    Just pExpr -> do
+      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . (If pExpr)
+      modify $ set astOutput []
+parseLineM line | T.take 3 line == "if " = error "todo"
+parseLineM line = modify $ over astOutput (<> parseLine line)
 
 parseLine :: Text -> Program
 parseLine cs =
@@ -672,13 +737,6 @@ getFunArgs cs = do
           <<< uncurry (:)
           <<< view _2 &&& view _3
           <<< foldr breakComma (0 :: Int, [], []) . T.unpack $ joinedArgs
-  -- let breaker :: Text -> Maybe (Text, Text)
-      -- breaker acc = do
-        -- let (l, unacc') = T.breakOn "," acc
-        -- (_, unacc) <- T.uncons unacc' <|> Just (' ', "")
-        -- guard $ T.strip l /= ""
-        -- return (T.strip l, T.strip unacc)
-  -- arg <- unfoldr breaker joinedArgs
   maybeToList $ parseExpr (T.strip arg)
 
 parseLet :: Text -> Text -> Program
@@ -686,6 +744,8 @@ parseLet var expr = mapMaybe id $ [Set var <$> parseExpr expr]
 
 parseExpr :: Text -> Maybe Expression
 parseExpr "" = Nothing
+parseExpr "True" = Just $ ENum 1
+parseExpr "False" = Just $ ENum 0
 parseExpr expr | isFunCall "input" expr =
   let pExpr = getFunArgs expr
   in Just $ EInput $ headMay pExpr
@@ -715,6 +775,9 @@ parseExpr expr | isFunCall "chr" expr = do
 parseExpr expr | isFunCall "ord" expr = do
   (a, _) <- uncons $ getFunArgs expr
   return $ EOrd a
+parseExpr expr | isFunCall "not" expr = do
+  (a, _) <- uncons $ getFunArgs expr
+  return $ ENot a
 parseExpr expr | isVString expr = Just . EString . T.tail . T.init $ expr
 parseExpr num | T.foldr ((&&) . isDigit) True num = Just . ENum . read . T.unpack $ num
 parseExpr var = Just $ EVar var
