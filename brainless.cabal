@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               bf-transpiler
+name:               brainless
 version:            0.1.0.0
 synopsis:           Transpiler to brainf -- fancy
 -- description:
@@ -15,7 +15,7 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
-executable bf-transpiler
+executable brainless
     import:           warnings
     main-is:          Main.hs
     -- other-modules:
