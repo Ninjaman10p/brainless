@@ -16,6 +16,7 @@ import Data.Char (ord, chr)
 import System.Environment
 import Control.Concurrent (threadDelay)
 import Safe (readMay, headMay)
+import qualified Data.Set as S
 import Data.List
 import Control.Applicative
 import Data.List.Extra (firstJust)
@@ -70,6 +71,8 @@ data ProgState = ProgState
   , _vars :: M.Map Variable (VType, Int)
   , _allocPtr :: Int
   , _tempVarPtr :: Int
+  , _strLength :: Int
+  , _freed :: S.Set (Int, Int)
   }
 $(makeLenses ''ProgState)
 
@@ -104,7 +107,8 @@ main = do
                     Just "dna-curtains" -> TemplateStyle dnaCurtains
                     Just _ -> Unknown
       let delay = getNumOpt "delay" 0 args
-      let compiled = prettyPrint style $ compileBf src
+      let strLen = getNumOpt "string-length" 32 args
+      let compiled = prettyPrint style $ compileBf strLen src
       when (not (getBoolOpt "silent" False args)) $
         forM_ (T.lines compiled) $ \line -> do
           threadDelay delay
@@ -223,21 +227,23 @@ prettyPrint (TemplateStyle template) cs' = changeText (_templatePrint []) cs'
 prettyPrint NoStyle cs = cs
 prettyPrint _ _ = error $ "unknown style"
 
-compileBf :: Text -> Text
-compileBf = compileAST . parseSource
+compileBf :: Int -> Text -> Text
+compileBf strLen = compileAST strLen . parseSource
 
 {----------------------
  - Parse AST to brainf
  ---------------------}
 
-compileAST :: Program -> Text
-compileAST p = view bfOutput . execState compileASTM $  ProgState
+compileAST :: Int -> Program -> Text
+compileAST strLen p = view bfOutput . execState compileASTM $  ProgState
   { _bfOutput = ""
   , _astInput = p
   , _pointerLoc = 0
   , _vars = M.empty
   , _allocPtr = 0
   , _tempVarPtr = 1
+  , _strLength = strLen
+  , _freed = S.empty
   }
 
 compileASTM :: MonadState ProgState m => m ()
@@ -667,6 +673,11 @@ getVarInfo var = do
     Just i -> return i
     Nothing -> error $ "Undefined variable: " <> T.unpack var
 
+getVarSize :: MonadState ProgState m => Variable -> m Int
+getVarSize var = do
+  typ <- getVarType var
+  sizeOf typ
+
 getVarPointer :: MonadState ProgState m => Variable -> m Int
 getVarPointer = fmap snd . getVarInfo
 
@@ -692,9 +703,16 @@ alloc typ var = do
   st <- get
   case st^.vars.at var of
     Nothing -> do
-      modify $ set (vars.at var) $ Just (typ, st^.allocPtr)
-      size <- sizeOf typ
-      modify $ over allocPtr (+size)
+      siz <- sizeOf typ
+      let position = S.lookupGE (siz, 0) (st^.freed)
+      case position of
+        Nothing -> do
+          modify $ set (vars.at var) $ Just (typ, st^.allocPtr)
+          modify $ over allocPtr (+siz)
+        Just (siz', loc) -> do
+          modify $ over freed $ S.delete (siz', loc)
+          modify $ over freed $ S.insert (siz' - siz, loc + siz)
+          modify $ set (vars.at var) $ Just (typ, loc)
     Just (oldtyp, _) ->
       when (oldtyp /= typ) $ do
         free var
@@ -749,7 +767,7 @@ renameVar src tgt = do
   modify $ set (vars.at src) $ Nothing
 
 sizeOf :: MonadState ProgState m => VType -> m Int
-sizeOf VString = return 64
+sizeOf VString = view strLength <$> get
 sizeOf VInt = return 1
 
 allocTmp :: MonadState ProgState m => VType -> m Variable
@@ -764,7 +782,11 @@ allocTmp typ = do
 -- does nothing for now
 -- later on can optimise
 free :: MonadState ProgState m => Variable -> m ()
-free var = modify $ set (vars.at var) Nothing
+free var = do
+  siz <- getVarSize var
+  loc <- getVarPointer var
+  modify $ over freed $ S.insert (siz, loc)
+  modify $ set (vars.at var) Nothing
   -- nullify var
 
 writeBf :: MonadState ProgState m => Text -> m ()

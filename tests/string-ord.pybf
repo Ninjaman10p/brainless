@@ -1,3 +1,10 @@
+# Different ordering from python
+# geq(a, b) ≅ foldr (&&) False $ zipWith (≥) a b
+# Maybe should switch to python's ordering, but that's
+# more difficult with the underlying language, and
+# most of the cost of running is compiling, so laziness
+# doesn't really help us here anyways.
+
 if geq("aaa", "AAA"):
     print("aaa ≥ AAA")
 
