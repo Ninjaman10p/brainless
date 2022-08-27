@@ -316,23 +316,19 @@ calculateExpr (EDiv a b) = do
   typ' <- getVarType b'
   case (typ, typ') of
     (VInt, VInt) -> do
-      zero <- calculateExpr (ENum 0)
       acpy <- allocTmp VInt
-      bcpy <- allocTmp VInt
       tgt <- allocTmp VInt
+      nullify tgt
       copy a' acpy
       shiftToVar acpy
+      writeBf "+"
       bfLoop $ do -- loop on a
-        shiftToVar tgt
-        writeBf "+"
-        copy b' bcpy
-        shiftToVar bcpy
-        bfLoop $ do -- Loop on b
+        repeatVar b' $ do
           decr acpy
-          shiftToVar bcpy
-          writeBf "-"
+        ifVar acpy $ do
+          shiftToVar tgt
+          writeBf "+"
         shiftToVar acpy
-      free zero
       return tgt
     (_, _) -> error $ "Cannot divide " <> show typ <> " by " <> show typ'
 
@@ -343,7 +339,7 @@ calculateExpr (EMod a b) = do
   typ' <- getVarType b'
   case (typ, typ') of
     (VInt, VInt) -> do
-      calculateExpr $ ESub (EVar a') (EMul (EVar a') (EDiv (EVar a') (EVar b')))
+      calculateExpr $ ESub (EVar a') (EMul (EVar b') (EDiv (EVar a') (EVar b')))
     (_, _) -> error $ "Cannot modulo " <> show typ <> " by " <> show typ'
 
 calculateExpr (EChr expr) = do
@@ -429,6 +425,17 @@ calculateExpr (EString cs) = do
     sequence_ $ replicate (ord c) $ writeBf "+"
   return tgt
 
+-- int only
+ifVar :: MonadState ProgState m => Variable -> m () -> m ()
+ifVar var m = do
+  tmp <- allocTmp VInt
+  shiftToVar var
+  bfLoop $ do
+    m
+    move var tmp
+  move tmp var
+  free tmp
+
 setVar :: MonadState ProgState m => Variable -> Expression -> m ()
 setVar var expr = do
   pExpr <- calculateExpr expr
@@ -468,13 +475,9 @@ shiftStrRight var = do
 
 decr :: MonadState ProgState m => Variable -> m ()
 decr var = do
-  zero <- allocTmp VInt
-  shiftToVar var
-  bfLoop $ do
+  ifVar var $ do
+    shiftToVar var
     writeBf "-"
-    shiftToVar zero
-    writeBf "[-]"
-  free zero
 
 shiftToVar :: MonadState ProgState m => Variable -> m ()
 shiftToVar = getVarPointer >=> shiftTo
