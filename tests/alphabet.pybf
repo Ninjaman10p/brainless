@@ -2,9 +2,9 @@ i = 0
 while lt(i, 2):
     n = 0
     line = ""
+    case_distance = subtract(ord("a"), ord("A"))
+    case_offset = mul(i, 32)
     while lt(n, 26):
-        case_distance = subtract(ord("a"), ord("A"))
-        case_offset = mul(i, case_distance)
         char_offset = add(n, ord("A"))
         line = add(line, chr(add(case_offset, char_offset)))
         n = add(n, 1)

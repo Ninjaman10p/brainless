@@ -28,16 +28,10 @@ if True:
 
 print("")
 print("Why don't you talk to yourself for a bit")
-print("Type 'nah' to quit")
 
 # We can also use loops
-running = True
-while running:
-    last_input = input()
-    if eq(last_input, "nah"):
-        running = False
-    if running:
-        print(last_input)
+while True:
+    print(input())
 
 print("")
 print("Goodbye")
