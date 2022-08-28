@@ -383,7 +383,7 @@ calculateExpr (ELt a b) = do
       _ -> error $ "Ordering hasn't been implemented for " <> show typ <> " yet"
   else error $ "Can only compare values of the same type"
 
-calculateExpr (EGt a b) = calculateExpr $ EAnd (EGeq a b) (ENot (ELeq a b))
+calculateExpr (EGt a b) = calculateExpr $ ELt b a
 
 calculateExpr (ELeq a b) = calculateExpr (EGeq b a)
 
