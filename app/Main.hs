@@ -352,7 +352,7 @@ calculateExpr (ELt a b) = do
         tmp <- makeCopy b'
         repeatVar a' $ do
           decr tmp
-        return tmp
+        calculateExpr $ ENot (ENot (EVar tmp))
       VString -> do
         acpy <- makeCopy a'
         bcpy <- makeCopy b'
