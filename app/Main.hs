@@ -107,7 +107,7 @@ main = do
                     Just "dna-curtains" -> TemplateStyle dnaCurtains
                     Just _ -> Unknown
       let delay = getNumOpt "delay" 0 args
-      let strLen = getNumOpt "string-length" 32 args
+      let strLen = getNumOpt "string-length" 64 args
       let compiled = prettyPrint style $ compileBf strLen src
       when (not (getBoolOpt "silent" False args)) $
         forM_ (T.lines compiled) $ \line -> do
@@ -358,27 +358,62 @@ calculateExpr (ELt a b) = do
         bcpy <- makeCopy b'
         aptr <- getVarPointer acpy
         bptr <- getVarPointer bcpy
-        tmp <- allocTmp VInt
-        tgt <- allocTmp VInt
-
-        size <- sizeOf VString
-        forM_ [1..size - 2] $ \n -> do
-          shiftTo $ bptr + n
+        
+        tgt <- calculateExpr $ ENum 1
+        running <- calculateExpr $ ENum 1
+        eq <- calculateExpr $ ENum 1
+        
+        shiftToVar running
+          
+        -- in loop
+        bfLoop $ do
+          tmpa <- allocTmp VInt
+          tmpb <- allocTmp VInt
+          
+          shiftTo $ aptr + 1
           bfLoop $ do
-            shiftToVar tmp
+            shiftToVar tmpa
             writeBf "+"
-            shiftTo $ bptr + n
+            shiftTo $ aptr + 1
             writeBf "-"
-          shiftTo $ aptr + n
+          shiftToVar $ acpy
+          writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
+          
+          shiftTo $ bptr + 1
           bfLoop $ do
-            decr tmp
-            shiftTo $ aptr + n
+            shiftToVar tmpb
+            writeBf "+"
+            shiftTo $ bptr + 1
             writeBf "-"
-          move tmp tgt
+          shiftToVar $ bcpy
+          writeBf ">>[[-<+>]>]<<[<]"
+          
+          bgeqa <- calculateExpr $ EGt (EVar tmpa) (EVar tmpb)
+          ifVar bgeqa $ do
+            decr tgt
+            setVar running $ ENum 0
+          
+          beqa <- calculateExpr $ ENot (EEq (EVar tmpa) (EVar tmpb))
+          ifVar beqa $ do
+            decr eq
+          
+          bDone <- calculateExpr $ ENot (EVar tmpb)
+          ifVar bDone $ do
+            ifVar eq $ do
+              decr tgt
+            setVar running $ ENum 0
 
-        free acpy
+          free bgeqa
+          free bDone
+          
+          free tmpa
+          free tmpb
+          shiftToVar running
+        -- end loop
+
+        free eq
         free bcpy
-        free tmp
+        free acpy
         return tgt
       _ -> error $ "Ordering hasn't been implemented for " <> show typ <> " yet"
   else error $ "Can only compare values of the same type"
@@ -394,6 +429,8 @@ calculateExpr (EEq a b) = do
   b' <- calculateExpr b
   typ <- getVarType a'
   typ' <- getVarType b'
+  printVar a'
+  printVar b'
   if typ == typ'
   then calculateExpr $ EAnd (EGeq (EVar a') (EVar b')) (EGeq (EVar b') (EVar a'))
   else calculateExpr (ENum 0)
@@ -414,8 +451,6 @@ calculateExpr (EAdd a b) = do
       tgt <- makeCopy a'
       bcpy <- makeCopy b'
       bptr <- getVarPointer bcpy
-
-      size <- sizeOf VString
 
       shiftTo $ bptr + 1
       bfLoop $ do
@@ -616,6 +651,7 @@ makeCopy :: MonadState ProgState m => Variable -> m Variable
 makeCopy var = do
   typ <- getVarType var
   tgt <- allocTmp typ
+  nullify tgt
   copy var tgt
   return tgt
 
@@ -714,36 +750,94 @@ alloc typ var = do
 copy :: MonadState ProgState m => Variable -> Variable -> m ()
 copy src tgt = do
   typ <- getVarType src
-  tmp <- allocTmp typ
-  ps <- getVarPointer src
-  pt <- getVarPointer tgt
-  p0 <- getVarPointer tmp
-  size <- sizeOf typ
-  forM_ [0..size - 1] $ \n -> do
-    shiftTo (ps + n)
-    bfLoop $ do
-      shiftTo (p0 + n)
-      writeBf "+"
-      shiftTo (pt + n)
-      writeBf "+"
-      shiftTo (ps + n)
-      writeBf "-"
-  move tmp src
-  free tmp
+  case typ of
+    VInt -> do
+      tmp <- allocTmp VInt
+      ps <- getVarPointer src
+      pt <- getVarPointer tgt
+      p0 <- getVarPointer tmp
+      size <- sizeOf VInt
+      forM_ [0..size - 1] $ \n -> do
+        shiftTo (ps + n)
+        bfLoop $ do
+          shiftTo (p0 + n)
+          writeBf "+"
+          shiftTo (pt + n)
+          writeBf "+"
+          shiftTo (ps + n)
+          writeBf "-"
+      move tmp src
+      free tmp
+    VString -> do
+      tmp <- allocTmp VString
+      p0 <- getVarPointer tmp
+      
+      move src tmp
+      
+      shiftTo $ p0 + 1
+      bfLoop $ do
+        shiftToVar tgt
+        writeBf ">[>]+[<]"
+        shiftToVar src
+        writeBf ">[>]+[<]"
+        
+        shiftTo $ p0 + 1
+        bfLoop $ do
+          shiftToVar tgt
+          writeBf ">[>]<+[<]"
+          shiftToVar src
+          writeBf ">[>]<+[<]"
+          shiftTo $ p0 + 1
+          writeBf "-"
+        shiftToVar tgt
+        writeBf ">[>]<-<[<]"
+        shiftToVar src
+        writeBf ">[>]<-<[<]"
+        
+        shiftToVar tmp
+        writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
+        
+        shiftTo $ p0 + 1
+      free tmp
+      
+        
 
 move :: MonadState ProgState m => Variable -> Variable -> m ()
 move src tgt = do
   typ <- getVarType src
-  ps <- getVarPointer src
-  pt <- getVarPointer tgt
-  size <- sizeOf typ
-  forM_ [0..size - 1] $ \n -> do
-    shiftTo (ps + n)
-    bfLoop $ do
-      shiftTo (pt + n)
-      writeBf "+"
-      shiftTo (ps + n)
-      writeBf "-"
+  case typ of
+    VInt -> do
+      ps <- getVarPointer src
+      pt <- getVarPointer tgt
+      size <- sizeOf typ
+      forM_ [0..size - 1] $ \n -> do
+        shiftTo (ps + n)
+        bfLoop $ do
+          shiftTo (pt + n)
+          writeBf "+"
+          shiftTo (ps + n)
+          writeBf "-"
+    VString -> do
+      ps <- getVarPointer src
+      
+      shiftTo $ ps + 1
+      bfLoop $ do
+        shiftToVar tgt
+        writeBf ">[>]+[<]"
+        shiftTo $ ps + 1
+        bfLoop $ do
+          shiftToVar tgt
+          writeBf ">[>]<+[<]"
+          shiftTo $ ps + 1
+          writeBf "-"
+        shiftToVar tgt
+        writeBf ">[>]<-<[<]"
+        
+        shiftToVar src
+        writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
+        
+        shiftTo $ ps + 1
+      
 
 -- Precondition: m does not shift pointerLoc
 bfLoop :: MonadState ProgState m => m () -> m ()
