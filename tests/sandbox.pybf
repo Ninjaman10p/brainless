@@ -1,0 +1,31 @@
+# Available commands:
+# add(a, b)
+# subtract(a, b)
+# mul(a, b)
+# div(a, b)
+# mod(a, b)
+
+# leq(a, b), lt(a, b), gt(a, b), geq(a, b)
+# eq(a, b)
+# (only confirmed to work for integers/bools)
+
+# and(a, b), or(a, b), not(a)
+
+# while <expr>:
+#     (make sure to use 4 spaces)
+
+# if <expr>:
+#     <code>
+
+# IF YOU WANT, you can write some code below using these functions
+
+i = 1
+while True:
+    print(i)
+    my_word = "Hello This Is A String Ahahaha"
+    i = mul(i, 2)
+    d = div(4, 3)
+    e = mod(10, 3)
+    print(d)
+    print(e)
+    
