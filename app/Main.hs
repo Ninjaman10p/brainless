@@ -657,7 +657,7 @@ subFromVar tgt src = do
     (VInt, VInt) -> do
       repeatVar src $ do
         shiftToVar tgt
-        writeBf "+"
+        writeBf "-"
     (_, _) -> error $ "cannot subtract " <> show typ' <> " from " <> show typ
 
 addToVar :: MonadState ProgState m => Variable -> Variable -> m ()
