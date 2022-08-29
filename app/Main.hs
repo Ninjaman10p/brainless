@@ -358,18 +358,18 @@ calculateExpr (ELt a b) = do
         bcpy <- makeCopy b'
         aptr <- getVarPointer acpy
         bptr <- getVarPointer bcpy
-        
+
         tgt <- calculateExpr $ ENum 1
         running <- calculateExpr $ ENum 1
         eq <- calculateExpr $ ENum 1
-        
+
         shiftToVar running
-          
+
         -- in loop
         bfLoop $ do
           tmpa <- allocTmp VInt
           tmpb <- allocTmp VInt
-          
+
           shiftTo $ aptr + 1
           bfLoop $ do
             shiftToVar tmpa
@@ -378,7 +378,7 @@ calculateExpr (ELt a b) = do
             writeBf "-"
           shiftToVar $ acpy
           writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
-          
+
           shiftTo $ bptr + 1
           bfLoop $ do
             shiftToVar tmpb
@@ -387,16 +387,16 @@ calculateExpr (ELt a b) = do
             writeBf "-"
           shiftToVar $ bcpy
           writeBf ">>[[-<+>]>]<<[<]"
-          
+
           bgeqa <- calculateExpr $ EGt (EVar tmpa) (EVar tmpb)
           ifVar bgeqa $ do
             decr tgt
             setVar running $ ENum 0
-          
+
           beqa <- calculateExpr $ ENot (EEq (EVar tmpa) (EVar tmpb))
           ifVar beqa $ do
             decr eq
-          
+
           bDone <- calculateExpr $ ENot (EVar tmpb)
           ifVar bDone $ do
             ifVar eq $ do
@@ -405,7 +405,7 @@ calculateExpr (ELt a b) = do
 
           free bgeqa
           free bDone
-          
+
           free tmpa
           free tmpb
           shiftToVar running
@@ -438,53 +438,15 @@ calculateExpr (EEq a b) = do
 calculateExpr (EAdd a b) = do
   a' <- calculateExpr a
   b' <- calculateExpr b
-  typ <- getVarType a'
-  typ' <- getVarType b'
-  case (typ, typ') of
-    (VInt, VInt) -> do
-      tgt <- makeCopy a'
-      repeatVar b' $ do
-        shiftToVar tgt
-        writeBf "+"
-      return tgt
-    (VString, VString) -> do
-      tgt <- makeCopy a'
-      bcpy <- makeCopy b'
-      bptr <- getVarPointer bcpy
-
-      shiftTo $ bptr + 1
-      bfLoop $ do
-        shiftToVar tgt
-        writeBf ">[>]+[<]"
-        shiftTo $ bptr + 1
-        bfLoop $ do
-          shiftToVar tgt
-          writeBf ">[>]<+[<]"
-          shiftTo $ bptr + 1
-          writeBf "-"
-        shiftToVar tgt
-        writeBf ">[>]<-<[<]"
-
-        shiftToVar $ bcpy
-        writeBf ">>[[-<+>]>]<<[<]"
-        shiftTo $ bptr + 1
-
-      free bcpy
-      return tgt
-    (_, _) -> error $ "Cannot add " <> show typ <> " and " <> show typ'
+  tgt <- makeCopy a'
+  addToVar tgt b'
+  return tgt
 
 calculateExpr (ESub a b) = do
   a' <- calculateExpr a
   b' <- calculateExpr b
-  typ <- getVarType a'
-  typ' <- getVarType b'
   tgt <- makeCopy a'
-  case (typ, typ') of
-    (VInt, VInt) -> do
-      repeatVar b' $ do
-        shiftToVar tgt
-        writeBf "-"
-    (_, _) -> error $ "Cannot subtract " <> show typ <> " and " <> show typ'
+  subFromVar tgt b'
   return tgt
 
 calculateExpr (EMul a b) = do
@@ -492,15 +454,9 @@ calculateExpr (EMul a b) = do
   b' <- calculateExpr b
   typ <- getVarType a'
   typ' <- getVarType b'
-  case (typ, typ') of
-    (VInt, VInt) -> do
-      tgt <- allocTmp VInt
-      repeatVar b' $
-        repeatVar a' $ do
-          shiftToVar tgt
-          writeBf "+"
-      return tgt
-    (_, _) -> error $ "Cannot multiply " <> show typ <> " by " <> show typ'
+  tgt <- makeCopy a'
+  mulByVar tgt b'
+  return tgt
 
 calculateExpr (EDiv a b) = do
   a' <- calculateExpr a
@@ -530,6 +486,8 @@ calculateExpr (EMod a b) = do
   typ' <- getVarType b'
   case (typ, typ') of
     (VInt, VInt) -> do
+      tgt <- makeCopy a'
+      modByVar tgt b'
       calculateExpr $ ESub (EVar a') (EMul (EVar b') (EDiv (EVar a') (EVar b')))
     (_, _) -> error $ "Cannot modulo " <> show typ <> " by " <> show typ'
 
@@ -574,26 +532,30 @@ calculateExpr (EStr expr) = do
     case typ of
       VString -> return var
       VInt -> do
-        counter <- makeCopy var
         tgt <- allocTmp VString
-        tgtptr <- getVarPointer tgt
-        ten <- calculateExpr $ ENum 10
-        shiftToVar counter
-        bfLoop $ do
-          nextChar <- calculateExpr $ EAdd (ENum $ ord '0') (EMod (EVar counter) (EVar ten))
-          --- shift string
-          shiftToVar tgt
-          writeBf ">[>]<" -- move to end of string
-          writeBf "[[->+<]<]"
-          --- end shift string
-          repeatVar nextChar $ do
-            shiftTo $ tgtptr + 1
-            writeBf "+"
-          setVar counter $ EDiv (EVar counter) (EVar ten)
-          free nextChar
+        isZero <- calculateExpr $ ENot expr
+        ifVar isZero $
+          setVar tgt $ EString "0"
+        ifVar var $ do
+          counter <- makeCopy var
+          tgtptr <- getVarPointer tgt
+          ten <- calculateExpr $ ENum 10
           shiftToVar counter
-        free counter
-        free ten
+          bfLoop $ do
+            nextChar <- calculateExpr $ EAdd (ENum $ ord '0') (EMod (EVar counter) (EVar ten))
+            --- shift string
+            shiftToVar tgt
+            writeBf ">[>]<" -- move to end of string
+            writeBf "[[->+<]<]"
+            --- end shift string
+            repeatVar nextChar $ do
+              shiftTo $ tgtptr + 1
+              writeBf "+"
+            setVar counter $ EDiv (EVar counter) (EVar ten)
+            free nextChar
+            shiftToVar counter
+          free counter
+          free ten
         return tgt
   return tgt
 
@@ -635,6 +597,105 @@ calculateExpr (EString cs) = do
     writeBf "[-]"
     sequence_ $ replicate (ord c) $ writeBf "+"
   return tgt
+
+{----------------------------
+ - In place opertions
+ ----------------------------}
+-- methods in haskell, i cri
+-- only valid on natural numbers
+
+expByVar :: MonadState ProgState m => Variable -> Variable -> m ()
+expByVar tgt src = do
+  typ <- getVarType src
+  typ' <- getVarType tgt
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      tmp <- allocTmp typ
+      move tgt tmp
+      shiftToVar tgt
+      writeBf "+"
+      repeatVar src $ do
+        shiftToVar tgt
+        mulByVar tgt tmp
+      free tmp
+    (_, _) -> error $ "cannot exponentiate " <> show typ <> " by " <> show typ'
+
+modByVar :: MonadState ProgState m => Variable -> Variable -> m ()
+modByVar tgt src = do
+  typ <- getVarType src
+  typ' <- getVarType tgt
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      running <- calculateExpr $ EGeq (EVar tgt) (EVar src)
+      shiftToVar running
+      bfLoop $ do
+        subFromVar tgt src
+        setVar running $ EGeq (EVar tgt) (EVar src)
+        shiftToVar running
+      free running
+    (_, _) -> error $ "cannot mod " <> show typ <> " by " <> show typ'
+
+mulByVar :: MonadState ProgState m => Variable -> Variable -> m ()
+mulByVar tgt src = do
+  typ <- getVarType src
+  typ' <- getVarType tgt
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      tmp <- allocTmp typ
+      move tgt tmp
+      repeatVar src $ do
+        shiftToVar tgt
+        addToVar tgt tmp
+      free tmp
+    (_, _) -> error $ "cannot multiply " <> show typ <> " by " <> show typ'
+
+subFromVar :: MonadState ProgState m => Variable -> Variable -> m ()
+subFromVar tgt src = do
+  typ <- getVarType src
+  typ' <- getVarType tgt
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      repeatVar src $ do
+        shiftToVar tgt
+        writeBf "+"
+    (_, _) -> error $ "cannot subtract " <> show typ' <> " from " <> show typ
+
+addToVar :: MonadState ProgState m => Variable -> Variable -> m ()
+addToVar tgt src = do
+  typ <- getVarType src
+  typ' <- getVarType tgt
+  case (typ, typ') of
+    (VInt, VInt) -> do
+      repeatVar src $ do
+        shiftToVar tgt
+        writeBf "+"
+    (VString, VString) -> do
+      bcpy <- makeCopy src
+      bptr <- getVarPointer bcpy
+
+      shiftTo $ bptr + 1
+      bfLoop $ do
+        shiftToVar tgt
+        writeBf ">[>]+[<]"
+        shiftTo $ bptr + 1
+        bfLoop $ do
+          shiftToVar tgt
+          writeBf ">[>]<+[<]"
+          shiftTo $ bptr + 1
+          writeBf "-"
+        shiftToVar tgt
+        writeBf ">[>]<-<[<]"
+
+        shiftToVar $ bcpy
+        writeBf ">>[[-<+>]>]<<[<]"
+        shiftTo $ bptr + 1
+
+      free bcpy
+    (_, _) -> error $ "cannot add " <> show typ' <> " to " <> show typ
+
+{----------------------------
+ - Other operations
+ ---------------------------}
 
 -- int only
 ifVar :: MonadState ProgState m => Variable -> m () -> m ()
@@ -771,16 +832,16 @@ copy src tgt = do
     VString -> do
       tmp <- allocTmp VString
       p0 <- getVarPointer tmp
-      
+
       move src tmp
-      
+
       shiftTo $ p0 + 1
       bfLoop $ do
         shiftToVar tgt
         writeBf ">[>]+[<]"
         shiftToVar src
         writeBf ">[>]+[<]"
-        
+
         shiftTo $ p0 + 1
         bfLoop $ do
           shiftToVar tgt
@@ -793,14 +854,12 @@ copy src tgt = do
         writeBf ">[>]<-<[<]"
         shiftToVar src
         writeBf ">[>]<-<[<]"
-        
+
         shiftToVar tmp
         writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
-        
+
         shiftTo $ p0 + 1
       free tmp
-      
-        
 
 move :: MonadState ProgState m => Variable -> Variable -> m ()
 move src tgt = do
@@ -819,7 +878,7 @@ move src tgt = do
           writeBf "-"
     VString -> do
       ps <- getVarPointer src
-      
+
       shiftTo $ ps + 1
       bfLoop $ do
         shiftToVar tgt
@@ -832,12 +891,12 @@ move src tgt = do
           writeBf "-"
         shiftToVar tgt
         writeBf ">[>]<-<[<]"
-        
+
         shiftToVar src
         writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
-        
+
         shiftTo $ ps + 1
-      
+
 
 -- Precondition: m does not shift pointerLoc
 bfLoop :: MonadState ProgState m => m () -> m ()
