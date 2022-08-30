@@ -1,8 +1,8 @@
-# BRAINLESS
+# brainless
 
 Transpile "python" programs into brainf\*\*\* ascii art
 
-## INSTALLING / COMPILING
+## Installing / Compiling
 
 Note: requires (cabal-install)[https://www.haskell.org/cabal/]
 1. Clone repo
@@ -12,11 +12,11 @@ either:
   - Run `cabal install` to install the project to your system
   - Run `cabal run . -- [ARGUMENTS]` to run this project without installing
 
-## USAGE
+## Usage
 
 For more information, run `brainless --help`.
 
-## COMMANDS
+## Commands
 Only a small subset of python has been implemented:
 
 - `<varname> = <expression>`
@@ -36,7 +36,7 @@ unresolved bug in this area.
 exactly 4 spaces at this time. There is a bug related to nested while/if loops.
 
 
-## TODO
+## Todo
 [x] Finish by the end of the hackathon
 [ ] Fix bugs to do with nested while loops and/or string comparison
 [ ] Add infix operators
