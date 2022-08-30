@@ -912,7 +912,7 @@ renameVar src tgt = do
   modify $ set (vars.at src) $ Nothing
 
 sizeOf :: MonadState ProgState m => VType -> m Int
-sizeOf VString = view strLength <$> get
+sizeOf VString = (+2) . view strLength <$> get -- account for null bytes
 sizeOf VInt = return 1
 
 allocTmp :: MonadState ProgState m => VType -> m Variable
