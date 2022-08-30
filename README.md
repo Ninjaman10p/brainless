@@ -7,10 +7,9 @@ Transpile "python" programs into brainf\*\*\* ascii art
 Note: requires [cabal-install](https://www.haskell.org/cabal/)
 1. Clone repo
 2. Open your terminal of choice
-3. While in repository base (that's the folder with this file in it!),
-either:
-  - Run `cabal install` to install the project to your system
-  - Run `cabal run . -- [ARGUMENTS]` to run this project without installing
+3. While in repository base (that's the folder with this file in it!), either:
+   - Run `cabal install` to install the project to your system
+   - Run `cabal run . -- [ARGUMENTS]` to run this project without installing
 
 ## Usage
 
