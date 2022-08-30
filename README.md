@@ -4,7 +4,7 @@ Transpile "python" programs into brainf\*\*\* ascii art
 
 ## Installing / Compiling
 
-Note: requires (cabal-install)[https://www.haskell.org/cabal/]
+Note: requires [cabal-install](https://www.haskell.org/cabal/)
 1. Clone repo
 2. Open your terminal of choice
 3. While in repository base (that's the folder with this file in it!),
@@ -37,9 +37,9 @@ exactly 4 spaces at this time. There is a bug related to nested while/if loops.
 
 
 ## Todo
-[x] Finish by the end of the hackathon
-[ ] Fix bugs to do with nested while loops and/or string comparison
-[ ] Add infix operators
-[ ] Expand available commands
-[ ] Optimise generated code / optimise compile times
-[ ] Optimise memory management
+- [x] Finish by the end of the hackathon
+- [ ] Fix bugs to do with nested while loops and/or string comparison
+- [ ] Add infix operators
+- [ ] Expand available commands
+- [ ] Optimise generated code / optimise compile times
+- [ ] Optimise memory management
