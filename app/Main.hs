@@ -20,6 +20,8 @@ import qualified Data.Set as S
 import Data.List
 import Control.Applicative
 import Data.List.Extra (firstJust)
+import qualified Data.Sequence as Seq
+import Data.Sequence (Seq)
 
 data PrettyPrintStyle = BlockStyle Int
                       | CircleStyle Int
@@ -65,7 +67,7 @@ data Command = Print Expression
 type Program = [Command]
 
 data ProgState = ProgState
-  { _bfOutput :: Text
+  { _bfOutput :: Seq Char
   , _astInput :: Program
   , _pointerLoc :: Int
   , _vars :: M.Map Variable (VType, Int)
@@ -235,7 +237,10 @@ compileBf strLen = compileAST strLen . parseSource
  ---------------------}
 
 compileAST :: Int -> Program -> Text
-compileAST strLen p = view bfOutput . execState compileASTM $  ProgState
+compileAST strLen p = T.pack
+                    <<< foldr (:) []
+                    <<< view bfOutput 
+                    <<< execState compileASTM $  ProgState
   { _bfOutput = ""
   , _astInput = p
   , _pointerLoc = 0
@@ -935,7 +940,7 @@ free var = do
   -- nullify var
 
 writeBf :: MonadState ProgState m => Text -> m ()
-writeBf cs = modify $ over bfOutput (<> cs)
+writeBf cs = modify $ over bfOutput (<> Seq.fromList (T.unpack cs))
 
 {----------------------
  - Parse file to AST
