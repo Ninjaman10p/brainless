@@ -9,17 +9,13 @@ import Data.Maybe
 import Control.Monad.State.Class
 import Control.Monad.State.Lazy
 import qualified Data.Map.Strict as M
-import Control.Monad
 import Data.Char
 import Control.Lens hiding (uncons)
-import Data.Char (ord, chr)
 import System.Environment
 import Control.Concurrent (threadDelay)
 import Safe (readMay, headMay)
 import qualified Data.Set as S
 import Data.List
-import Control.Applicative
-import Data.List.Extra (firstJust)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 
@@ -240,7 +236,7 @@ compileAST :: Int -> Program -> Text
 compileAST strLen p = T.pack
                     <<< foldr (:) []
                     <<< view bfOutput 
-                    <<< execState compileASTM $  ProgState
+                    <<< execState compileASTM $ ProgState
   { _bfOutput = ""
   , _astInput = p
   , _pointerLoc = 0
@@ -266,7 +262,6 @@ compileASTM = do
           cmds <- view astInput <$> get
           modify $ set astInput prog
           res <- calculateExpr expr
-          typ <- getVarType res
           shiftToVar res
           bfLoop $ do
             compileASTM
@@ -420,7 +415,7 @@ calculateExpr (ELt a b) = do
         free bcpy
         free acpy
         return tgt
-      _ -> error $ "Ordering hasn't been implemented for " <> show typ <> " yet"
+      -- _ -> error $ "Ordering hasn't been implemented for " <> show typ <> " yet"
   else error $ "Can only compare values of the same type"
 
 calculateExpr (EGt a b) = calculateExpr $ ELt b a
@@ -457,8 +452,6 @@ calculateExpr (ESub a b) = do
 calculateExpr (EMul a b) = do
   a' <- calculateExpr a
   b' <- calculateExpr b
-  typ <- getVarType a'
-  typ' <- getVarType b'
   tgt <- makeCopy a'
   mulByVar tgt b'
   return tgt
@@ -970,7 +963,7 @@ parseSourceM = do
           modify $ set tInput ls
           parseSourceM
     else do
-      let (f:fs) = st^.iStack
+      let (f:_) = st^.iStack
       modify $ over astOutput f
       modify $ over iStack $ drop 1
       parseSourceM
