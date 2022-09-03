@@ -1,5 +1,7 @@
+# FILE INPUT
+
 n = 0
-while lt(n, 100):
+while lt(n, 50):
     print("       $...        ...#")
     print("       $...        ...#")
     print("        $...      ...# ")
