@@ -1,3 +1,6 @@
 dist-newstyle
 tmp.bf
 tags
+compiled
+cover-image/*.png
+cover-image/*.jpg
