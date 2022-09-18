@@ -207,14 +207,14 @@ prettyPrint (CircleStyle radius) cs =
   let xA = [-2*radius .. 2*radius]
       yA = [-radius .. radius] :: [Int]
       two = 2 :: Int
-      coords = fmap (sequence $ fmap (,) xA) yA :: [[(Int, Int)]]
+      coords = fmap (mapM (,) xA) yA :: [[(Int, Int)]]
       p (x, y) =
         if x^two + (2*y)^two <= (2*radius)^two && 2*(x^two + (2*y)^two) >= (2*radius)^two
           then '.' else ' '
       style = TemplateStyle $ (T.unlines . fmap (T.pack . fmap p) $ coords) <> "\n"
   in prettyPrint style cs
 prettyPrint (BlockStyle width) cs =
-  prettyPrint (TemplateStyle $ (T.pack $ replicate width '.') <> "\n") cs
+  prettyPrint (TemplateStyle $ T.pack (replicate width '.') <> "\n") cs
 prettyPrint (TemplateStyle template) cs' = changeText (_templatePrint []) cs'
   where stemplate = T.unpack template
         _templatePrint _ "" = ""
@@ -223,7 +223,7 @@ prettyPrint (TemplateStyle template) cs' = changeText (_templatePrint []) cs'
         _templatePrint (_:ts) (c:cs) = c:_templatePrint ts cs
         _templatePrint [] cs = _templatePrint stemplate cs
 prettyPrint NoStyle cs = cs
-prettyPrint _ _ = error $ "unknown style"
+prettyPrint _ _ = error "unknown style"
 
 compileBf :: Int -> Text -> Text
 compileBf strLen = compileAST strLen . parseSource
@@ -376,7 +376,7 @@ calculateExpr (ELt a b) = do
             writeBf "+"
             shiftTo $ aptr + 1
             writeBf "-"
-          shiftToVar $ acpy
+          shiftToVar acpy
           writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
 
           shiftTo $ bptr + 1
@@ -385,7 +385,7 @@ calculateExpr (ELt a b) = do
             writeBf "+"
             shiftTo $ bptr + 1
             writeBf "-"
-          shiftToVar $ bcpy
+          shiftToVar bcpy
           writeBf ">>[[-<+>]>]<<[<]"
 
           bgeqa <- calculateExpr $ EGt (EVar tmpa) (EVar tmpb)
@@ -416,7 +416,7 @@ calculateExpr (ELt a b) = do
         free acpy
         return tgt
       -- _ -> error $ "Ordering hasn't been implemented for " <> show typ <> " yet"
-  else error $ "Can only compare values of the same type"
+  else error "Can only compare values of the same type"
 
 calculateExpr (EGt a b) = calculateExpr $ ELt b a
 
@@ -492,77 +492,71 @@ calculateExpr (EMod a b) = do
 calculateExpr (EChr expr) = do
   var <- calculateExpr expr
   typ <- getVarType var
-  tgt <-
-    case typ of
-      VString -> error "Cannot cast string to character"
-      VInt -> do
-        tgt <- allocTmp VString
-        tgtptr <- getVarPointer tgt
-        repeatVar var $ do
-          shiftTo $ tgtptr + 1
-          writeBf "+"
-        return tgt
-  return tgt
+  case typ of
+    VString -> error "Cannot cast string to character"
+    VInt -> do
+      tgt <- allocTmp VString
+      tgtptr <- getVarPointer tgt
+      repeatVar var $ do
+        shiftTo $ tgtptr + 1
+        writeBf "+"
+      return tgt
 
 calculateExpr (EOrd expr) = do
   var <- calculateExpr expr
   typ <- getVarType var
-  tgt <-
-    case typ of
-      VInt -> error "Can only cast character to character code"
-      VString -> do
-        tgt <- allocTmp VInt
-        varcpy <- makeCopy var
-        varptr <- getVarPointer varcpy
+  case typ of
+    VInt -> error "Can only cast character to character code"
+    VString -> do
+      tgt <- allocTmp VInt
+      varcpy <- makeCopy var
+      varptr <- getVarPointer varcpy
+      shiftTo $ varptr + 1
+      bfLoop $ do
+        shiftToVar tgt
+        writeBf "+"
         shiftTo $ varptr + 1
-        bfLoop $ do
-          shiftToVar tgt
-          writeBf "+"
-          shiftTo $ varptr + 1
-          writeBf "-"
-        return tgt
-  return tgt
+        writeBf "-"
+      return tgt
 
 calculateExpr (EStr expr) = do
   var <- calculateExpr expr
   typ <- getVarType var
-  tgt <-
-    case typ of
-      VString -> return var
-      VInt -> do
-        tgt <- allocTmp VString
-        isZero <- calculateExpr $ ENot expr
-        ifVar isZero $
-          setVar tgt $ EString "0"
-        ifVar var $ do
-          counter <- makeCopy var
-          tgtptr <- getVarPointer tgt
-          ten <- calculateExpr $ ENum 10
+  case typ of
+    VString -> return var
+    VInt -> do
+      tgt <- allocTmp VString
+      isZero <- calculateExpr $ ENot expr
+      ifVar isZero $
+        setVar tgt $ EString "0"
+      ifVar var $ do
+        counter <- makeCopy var
+        tgtptr <- getVarPointer tgt
+        ten <- calculateExpr $ ENum 10
+        shiftToVar counter
+        bfLoop $ do
+          nextChar <- calculateExpr $ EAdd (ENum $ ord '0') (EMod (EVar counter) (EVar ten))
+          --- shift string
+          shiftToVar tgt
+          writeBf ">[>]<" -- move to end of string
+          writeBf "[[->+<]<]"
+          --- end shift string
+          repeatVar nextChar $ do
+            shiftTo $ tgtptr + 1
+            writeBf "+"
+          setVar counter $ EDiv (EVar counter) (EVar ten)
+          free nextChar
           shiftToVar counter
-          bfLoop $ do
-            nextChar <- calculateExpr $ EAdd (ENum $ ord '0') (EMod (EVar counter) (EVar ten))
-            --- shift string
-            shiftToVar tgt
-            writeBf ">[>]<" -- move to end of string
-            writeBf "[[->+<]<]"
-            --- end shift string
-            repeatVar nextChar $ do
-              shiftTo $ tgtptr + 1
-              writeBf "+"
-            setVar counter $ EDiv (EVar counter) (EVar ten)
-            free nextChar
-            shiftToVar counter
-          free counter
-          free ten
-        return tgt
-  return tgt
+        free counter
+        free ten
+      return tgt
 
 calculateExpr (ENum num) = do
   -- if num <= 12
     -- then do
       tgt <- allocTmp VInt
       shiftToVar tgt
-      sequence_ $ replicate num $ writeBf "+"
+      replicateM_ num $ writeBf "+"
       return tgt
     -- else
       -- if isPrime num
@@ -593,7 +587,7 @@ calculateExpr (EString cs) = do
   forM_ (zip [1..] $ T.unpack cs) $ \(n, c) -> do
     shiftTo $ tgtPtr + n
     writeBf "[-]"
-    sequence_ $ replicate (ord c) $ writeBf "+"
+    replicateM_ (ord c) $ writeBf "+"
   return tgt
 
 {----------------------------
@@ -684,7 +678,7 @@ addToVar tgt src = do
         shiftToVar tgt
         writeBf ">[>]<-<[<]"
 
-        shiftToVar $ bcpy
+        shiftToVar bcpy
         writeBf ">>[[-<+>]>]<<[<]"
         shiftTo $ bptr + 1
 
@@ -781,7 +775,7 @@ shiftTo n = do
 
 popCmd :: MonadState ProgState m => m (Maybe Command)
 popCmd = do
-  (p, ps) <- fromMaybe (Nothing, []) . fmap (first Just) . uncons . view astInput <$> get
+  (p, ps) <- maybe (Nothing, []) (first Just) . uncons . view astInput <$> get
   modify $ set astInput ps
   return p
 
@@ -907,7 +901,7 @@ renameVar :: MonadState ProgState m => Variable -> Variable -> m ()
 renameVar src tgt = do
   v <- getVarInfo src
   modify $ set (vars.at tgt) $ Just v
-  modify $ set (vars.at src) $ Nothing
+  modify $ set (vars.at src) Nothing
 
 sizeOf :: MonadState ProgState m => VType -> m Int
 sizeOf VString = (+2) . view strLength <$> get -- account for null bytes
@@ -949,7 +943,7 @@ parseSource cs = view astOutput . execState parseSourceM $ ParseState
 parseSourceM :: MonadState ParseState m => m ()
 parseSourceM = do
   st <- get
-  let (line, ls) = second (fromMaybe "" . fmap snd . T.uncons) . T.breakOn "\n" $ st^.tInput
+  let (line, ls) = second (maybe "" snd . T.uncons) . T.breakOn "\n" $ st^.tInput
   let expectedIndent = 4 * length (st^.iStack)
   if T.take expectedIndent line == T.pack (replicate expectedIndent ' ')
     then do
@@ -975,7 +969,7 @@ parseLineM line | T.take 6 line == "while " = do
   case expr of
     Nothing -> error "Could not parse expression in while statement"
     Just pExpr -> do
-      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . (While pExpr)
+      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . While pExpr
       modify $ set astOutput []
 parseLineM line | T.take 3 line == "if " = do
   st <- get
@@ -983,7 +977,7 @@ parseLineM line | T.take 3 line == "if " = do
   case expr of
     Nothing -> error "Could not parse expression in if statement"
     Just pExpr -> do
-      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . (If pExpr)
+      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . If pExpr
       modify $ set astOutput []
 parseLineM line | T.take 3 line == "if " = error "todo"
 parseLineM line = modify $ over astOutput (<> parseLine line)
@@ -998,14 +992,13 @@ parseLine cs =
 parseExec :: Text -> Program
 parseExec cmd | isFunCall "print" cmd = fromMaybe [] $ do
   pExpr <- headMay $ getFunArgs cmd
-  return $
-    [ Print pExpr ]
+  return [ Print pExpr ]
 parseExec cmd | T.strip cmd == "" = []
 parseExec cmd | T.head (T.strip cmd) == '#' = []
 parseExec cmd = error $ "Invalid syntax: " <> show cmd
 
 isFunCall :: Text -> Text -> Bool
-isFunCall fun expr = T.take (1 + (T.length fun)) expr == fun <> "("
+isFunCall fun expr = T.take (1 + T.length fun) expr == fun <> "("
                       && (snd <$> T.unsnoc expr) == Just ')'
 
 -- partial
@@ -1020,14 +1013,14 @@ getFunArgs cs = do
       breakComma ')' (n, acc, accs) = (n - 1, ')':acc, accs)
       breakComma ',' (0, acc, accs) = (0, [], acc:accs)
       breakComma c (n, acc, accs) = (n, c:acc, accs)
-  arg <- fmap (T.pack)
+  arg <- fmap T.pack
           <<< uncurry (:)
           <<< view _2 &&& view _3
           <<< foldr breakComma (0 :: Int, [], []) . T.unpack $ joinedArgs
   maybeToList $ parseExpr (T.strip arg)
 
 parseLet :: Text -> Text -> Program
-parseLet var expr = mapMaybe id $ [Set var <$> parseExpr expr]
+parseLet var expr = catMaybes [Set var <$> parseExpr expr]
 
 parseExpr :: Text -> Maybe Expression
 parseExpr "" = Nothing
@@ -1114,4 +1107,4 @@ changeText :: (String -> String) -> Text -> Text
 changeText f = T.pack . f . T.unpack
 
 isPrime :: Int -> Bool
-isPrime n = not $ foldr ((||) . (== 0) . (quot n)) False [2..n-1]
+isPrime n = not $ foldr ((||) . (== 0) . quot n) False [2..n-1]
