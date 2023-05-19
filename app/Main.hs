@@ -18,6 +18,7 @@ import qualified Data.Set as S
 import Data.List
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
+import Python
 
 data PrettyPrintStyle = BlockStyle Int
                       | CircleStyle Int
@@ -27,40 +28,8 @@ data PrettyPrintStyle = BlockStyle Int
                       | Unknown
   deriving Show
 
-data Expression = EVar Variable
-                | EString Text
-                | ENum Int
-                | EInput (Maybe Expression)
-                | EAdd Expression Expression
-                | ESub Expression Expression
-                | EDiv Expression Expression
-                | EMod Expression Expression
-                | EStr Expression
-                | EOrd Expression
-                | EChr Expression
-                | EMul Expression Expression
-                | ENot Expression
-                | EGeq Expression Expression
-                | ELeq Expression Expression
-                | EGt Expression Expression
-                | ELt Expression Expression
-                | EEq Expression Expression
-                | EAnd Expression Expression
-                | EOr Expression Expression
-  deriving (Show, Eq, Ord)
-
 data VType = VString | VInt
   deriving (Show, Eq, Ord)
-
-type Variable = Text
-
-data Command = Print Expression
-             | Set Variable Expression
-             | While Expression [Command]
-             | If Expression [Command]
-  deriving (Show, Eq, Ord)
-
-type Program = [Command]
 
 data ProgState = ProgState
   { _bfOutput :: Seq Char
@@ -93,7 +62,7 @@ main = do
     Just fp -> do
       let blockStyle = BlockStyle $ getNumOpt "block-width" 40 args
       src <- T.readFile fp
-      templateStyle <- sequence . fmap T.readFile $ getStrOpt "template" args
+      templateStyle <- mapM T.readFile $ getStrOpt "template" args
       let style = case getStrOpt "style" args of
                     Nothing -> NoStyle
                     Just "none" -> NoStyle
@@ -107,7 +76,7 @@ main = do
       let delay = getNumOpt "delay" 0 args
       let strLen = getNumOpt "string-length" 64 args
       let compiled = prettyPrint style $ compileBf strLen src
-      when (not (getBoolOpt "silent" False args)) $
+      unless (getBoolOpt "silent" False args) $
         forM_ (T.lines compiled) $ \line -> do
           threadDelay delay
           T.putStrLn line
@@ -196,7 +165,7 @@ prettyPrint _ "" = ""
 prettyPrint (DiscStyle radius) cs =
   let xA = [-2*radius .. 2*radius]
       yA = [-radius .. radius]
-      coords = fmap (sequence $ fmap (,) xA) yA :: [[(Int, Int)]]
+      coords = fmap (mapM (,) xA) yA :: [[(Int, Int)]]
       two = 2 :: Int
       p (x, y) =
         if x^two + (2*y)^two <= (2*radius)^two
@@ -226,7 +195,7 @@ prettyPrint NoStyle cs = cs
 prettyPrint _ _ = error "unknown style"
 
 compileBf :: Int -> Text -> Text
-compileBf strLen = compileAST strLen . parseSource
+compileBf strLen = compileAST strLen . either (error . show) id . parsePython file "source file"
 
 {----------------------
  - Parse AST to brainf
@@ -773,7 +742,7 @@ shiftTo n = do
       c = if currentLoc < n then '>' else '<'
   writeBf (T.pack $ replicate dist c)
 
-popCmd :: MonadState ProgState m => m (Maybe Command)
+popCmd :: MonadState ProgState m => m (Maybe Instruction)
 popCmd = do
   (p, ps) <- maybe (Nothing, []) (first Just) . uncons . view astInput <$> get
   modify $ set astInput ps

@@ -15,11 +15,21 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
+library
+  exposed-modules:
+      Python
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5, parsec, safe, text, mtl, containers, lens, extra
+  default-language: Haskell2010
+
 executable brainless
     import:           warnings
     main-is:          Main.hs
     -- other-modules:
     -- other-extensions:
-    build-depends:    base ^>=4.15.1.0, safe, text, mtl, containers, lens, extra
+    build-depends:    base ^>=4.15.1.0, safe, text, mtl, containers, lens, extra, brainless
     hs-source-dirs:   app
     default-language: Haskell2010

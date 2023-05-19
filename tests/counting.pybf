@@ -1,0 +1,5 @@
+i = 0
+
+while True:
+    i = add(i, 1)
+    print(i)

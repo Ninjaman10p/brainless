@@ -30,8 +30,11 @@ print("")
 print("Why don't you talk to yourself for a bit")
 
 # We can also use loops
-while True:
-    print(input())
+running = True
+while running:
+    last_input = input()
+    print(last_input)
+    running = not(eq(last_input, "nah"))
 
 print("")
 print("Goodbye")
