@@ -5,11 +5,11 @@
 # most of the cost of running is compiling, so laziness
 # doesn't really help us here anyways.
 
-if geq("aaa", "AAA"):
+if "aaa" >= "AAA":
     print("aaa ≥ AAA")
 
-if eq("aaa", "aaa"):
+if "aaa" == "aaa":
     print("aaa ≅ aaa")
 
-if eq("aaa", "aab"):
+if "aaa" == "aab":
     print("aaa ≅ aab")
