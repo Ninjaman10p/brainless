@@ -1,7 +1,7 @@
 # FILE INPUT
 
 n = 0
-while lt(n, 50):
+while n < 50:
     print("       $...        ...#")
     print("       $...        ...#")
     print("        $...      ...# ")
@@ -28,4 +28,4 @@ while lt(n, 50):
     print("        $...      ...# ")
     print("       $...        ...#")
     print("       $...        ...#")
-    n = add(1, n)
+    n = 1 + n

@@ -1,12 +1,12 @@
 i = 0
-while lt(i, 2):
+while i < 2:
     n = 0
     line = ""
-    case_distance = subtract(ord("a"), ord("A"))
-    case_offset = mul(i, 32)
-    while lt(n, 26):
-        char_offset = add(n, ord("A"))
-        line = add(line, chr(add(case_offset, char_offset)))
-        n = add(n, 1)
+    case_distance = ord("a") - ord("A")
+    case_offset = i * 32
+    while n < 26:
+        char_offset = n * ord("A")
+        line = line + chr(case_offset + char_offset)
+        n = n + 1
     print(line)
-    i = add(i, 1)
+    i = i + 1

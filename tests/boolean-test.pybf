@@ -1,26 +1,26 @@
-if and(True, True):
+if True and True:
     print("True and True")
-if and(True, False):
+if True and False:
     print("True and False")
-if and(False, True):
+if False and True:
     print("False and True")
-if and(False, False):
+if False and False:
     print("False and False")
-    
-if or(True, True):
+
+if True or True:
     print("True or True")
-if or(True, False):
+if True or False:
     print("True or False")
-if or(False, True):
+if False or True:
     print("False or True")
-if or(False, False):
+if False or False:
     print("False or False")
-    
-if geq(1, 0):
+
+if 1 >= 0:
     print("1 ≥ 0")
-if geq(0, 1):
+if 0 >= 1:
     print("0 ≥ 1")
-if geq(0, 0):
+if 0 >= 0:
     print("0 ≥ 0")
-if geq(1, 1):
+if 1 >= 1:
     print("1 ≥ 1")

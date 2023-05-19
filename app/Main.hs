@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, FlexibleContexts, TemplateHaskell #-}
-module Main where
+module Main (main) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -13,9 +13,9 @@ import Data.Char
 import Control.Lens hiding (uncons)
 import System.Environment
 import Control.Concurrent (threadDelay)
-import Safe (readMay, headMay)
+import Safe (readMay)
 import qualified Data.Set as S
-import Data.List
+import Data.List (uncons)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Python
@@ -43,12 +43,14 @@ data ProgState = ProgState
   }
 $(makeLenses ''ProgState)
 
+  {-
 data ParseState = ParseState
   { _tInput :: Text
   , _astOutput :: Program
   , _iStack :: [Program -> Program]
   }
 $(makeLenses ''ParseState)
+ -}
 
 tmpVar :: Int -> Variable
 tmpVar n = "__tmp__" <> T.pack (show n)
@@ -140,8 +142,8 @@ getNumOpt str n args = fromMaybe n $ readMay =<< getStrOpt str args
 
 getStrOpt :: String -> [String] -> Maybe String
 getStrOpt str (arg:args)
-  | take 2 arg == "--" && str == var = Just . fromMaybe expr $ getStrOpt str args
-    where (var, expr) = second tail $ break (=='=') $ drop 2 arg
+  | take 2 arg == "--" && str == var = Just . fromMaybe e $ getStrOpt str args
+    where (var, e) = second tail $ break (=='=') $ drop 2 arg
 getStrOpt str (_:args) = getStrOpt str args
 getStrOpt _ [] = Nothing
 
@@ -224,28 +226,28 @@ compileASTM = do
   case p of
     Just p' -> do
       case p' of
-        Print expr -> do
-          var <- calculateExpr expr
+        Print e -> do
+          var <- calculateExpr e
           printVar var
-        While expr prog -> do
+        While e prog -> do
           cmds <- view astInput <$> get
           modify $ set astInput prog
-          res <- calculateExpr expr
+          res <- calculateExpr e
           shiftToVar res
           bfLoop $ do
             compileASTM
-            setVar res expr
+            setVar res e
             shiftToVar res
           modify $ set astInput cmds
-        If expr prog -> do
+        If e prog -> do
           cmds <- view astInput <$> get
           modify $ set astInput prog
-          res <- calculateExpr expr
+          res <- calculateExpr e
           ifVar res $ do
             compileASTM
           modify $ set astInput cmds
-        Set var expr -> do
-          setVar var expr
+        Set var e -> do
+          setVar var e
           -- handle <- calculateExpr expr
           -- typ <- getVarType handle
           -- alloc typ var
@@ -271,7 +273,9 @@ printVar var = do
 
 -- calculate the value of an expession, and return a pointer to the result
 calculateExpr :: MonadState ProgState m => Expression -> m Variable
-calculateExpr (EVar var) = makeCopy var
+calculateExpr (EVar v) = makeCopy v
+
+calculateExpr (EBool v) = calculateExpr (ENum (if v then 1 else 0))
 
 calculateExpr (ENot a) = do
   a' <- calculateExpr a
@@ -458,8 +462,8 @@ calculateExpr (EMod a b) = do
       calculateExpr $ ESub (EVar a') (EMul (EVar b') (EDiv (EVar a') (EVar b')))
     (_, _) -> error $ "Cannot modulo " <> show typ <> " by " <> show typ'
 
-calculateExpr (EChr expr) = do
-  var <- calculateExpr expr
+calculateExpr (EChr e) = do
+  var <- calculateExpr e
   typ <- getVarType var
   case typ of
     VString -> error "Cannot cast string to character"
@@ -471,8 +475,8 @@ calculateExpr (EChr expr) = do
         writeBf "+"
       return tgt
 
-calculateExpr (EOrd expr) = do
-  var <- calculateExpr expr
+calculateExpr (EOrd e) = do
+  var <- calculateExpr e
   typ <- getVarType var
   case typ of
     VInt -> error "Can only cast character to character code"
@@ -488,14 +492,14 @@ calculateExpr (EOrd expr) = do
         writeBf "-"
       return tgt
 
-calculateExpr (EStr expr) = do
-  var <- calculateExpr expr
+calculateExpr (EStr e) = do
+  var <- calculateExpr e
   typ <- getVarType var
   case typ of
     VString -> return var
     VInt -> do
       tgt <- allocTmp VString
-      isZero <- calculateExpr $ ENot expr
+      isZero <- calculateExpr $ ENot e
       ifVar isZero $
         setVar tgt $ EString "0"
       ifVar var $ do
@@ -546,8 +550,8 @@ calculateExpr (EInput Nothing) = do
     newline '-'
   writeBf "<[<]"
   return var
-calculateExpr (EInput (Just expr)) = do
-  v0 <- calculateExpr expr
+calculateExpr (EInput (Just e)) = do
+  v0 <- calculateExpr e
   printVar v0
   calculateExpr (EInput Nothing)
 calculateExpr (EString cs) = do
@@ -565,6 +569,7 @@ calculateExpr (EString cs) = do
 -- methods in haskell, i cri
 -- only valid on natural numbers
 
+  {-
 expByVar :: MonadState ProgState m => Variable -> Variable -> m ()
 expByVar tgt src = do
   typ <- getVarType src
@@ -580,6 +585,7 @@ expByVar tgt src = do
         mulByVar tgt tmp
       free tmp
     (_, _) -> error $ "cannot exponentiate " <> show typ <> " by " <> show typ'
+  -}
 
 modByVar :: MonadState ProgState m => Variable -> Variable -> m ()
 modByVar tgt src = do
@@ -678,13 +684,13 @@ makeCopy var = do
   return tgt
 
 setVar :: MonadState ProgState m => Variable -> Expression -> m ()
-setVar var expr = do
-  pExpr <- calculateExpr expr
+setVar v e = do
+  pExpr <- calculateExpr e
   typ <- getVarType pExpr
   -- tmp <- move pExpr
-  alloc typ var
-  nullify var
-  move pExpr var
+  alloc typ v
+  nullify v
+  move pExpr v
 
 nullify :: MonadState ProgState m => Variable -> m ()
 nullify var = do
@@ -866,11 +872,13 @@ bfLoop m = do
   m
   writeBf "]"
 
+  {-
 renameVar :: MonadState ProgState m => Variable -> Variable -> m ()
 renameVar src tgt = do
   v <- getVarInfo src
   modify $ set (vars.at tgt) $ Just v
   modify $ set (vars.at src) Nothing
+  -}
 
 sizeOf :: MonadState ProgState m => VType -> m Int
 sizeOf VString = (+2) . view strLength <$> get -- account for null bytes
@@ -902,6 +910,7 @@ writeBf cs = modify $ over bfOutput (<> Seq.fromList (T.unpack cs))
  - Parse file to AST
  ---------------------}
 
+{-
 parseSource :: Text -> Program
 parseSource cs = view astOutput . execState parseSourceM $ ParseState
   { _tInput = cs
@@ -1061,12 +1070,15 @@ parseExpr expr | isFunCall "or" expr = do
 parseExpr expr | isVString expr = Just . EString . T.tail . T.init $ expr
 parseExpr num | T.foldr ((&&) . isDigit) True num = Just . ENum . read . T.unpack $ num
 parseExpr var = Just $ EVar var
+-}
 
+  {-
 isVString :: Text -> Bool
 isVString cs = fromMaybe False $ do
   (a, _) <- T.uncons cs
   (_, b) <- T.unsnoc cs
   return $ a == '"' && b == '"'
+  -}
 
 {--------------------
  - Generic functions
@@ -1075,5 +1087,7 @@ isVString cs = fromMaybe False $ do
 changeText :: (String -> String) -> Text -> Text
 changeText f = T.pack . f . T.unpack
 
+  {-
 isPrime :: Int -> Bool
 isPrime n = not $ foldr ((||) . (== 0) . quot n) False [2..n-1]
+-}

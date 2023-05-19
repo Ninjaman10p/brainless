@@ -16,7 +16,7 @@ print(chr(first_char))
 print("")
 print("The next character after that in the alphabet is is:")
 # Functions can immediately call the results of other functions
-print(chr(add(first_char, 1)))
+print(chr(first_char + 1))
 
 # If statements exist
 if False:
@@ -34,7 +34,7 @@ running = True
 while running:
     last_input = input()
     print(last_input)
-    running = not(eq(last_input, "nah"))
+    running = not (last_input == "nah")
 
 print("")
 print("Goodbye")
