@@ -20,14 +20,13 @@ Only a small subset of python has been implemented:
 
 - `<varname> = <expression>`
 - `print(<expression>)`
-- `add(a, b)`, `sub(a, b)`, `mul(a, b)`, `div(a, b)`, `mod(a, b)` for basic
-numeric operations. No infix operators at this time
-- `add(a, b)` for string concatenation. Note that creating strings longer than
+- `a + b`, `a - b`, `a * b`, `a // b`, `a % b` for basic operations
+- `a + b` for string concatenation. Note that creating strings longer than
 the specified `--string-length` (default: 64) is undefined behaviour.
-- `geq(a, b)`, `leq(a, b)`, `lt(a, b)`, `gt(a, b)`, `eq(a, b)` for numeric
+- `a >= b`, `a <= b`, `a < b`, `a >= b`, `a == b` for numeric
 comparison. Also technically defined for string comparison, but there is an
 unresolved bug in this area.
-- `and(a, b)`, `or(a, b)`, `not(a)` for boolean logic
+- `a and b`, `a or b`, `not a` for boolean logic
 - `input(a)` or `input()` to get a line of user input
 - `chr(a)` to convert an integer into the corresponding character.
 `ord(a)` to get the character code of the start of a string.
