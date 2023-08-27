@@ -61,7 +61,7 @@ type Variable = Text
 type Program = [Instruction]
 
 variable :: PythonParser Variable
-variable = T.pack <$> ((:) <$> (char '_' <|> letter) <*> many (char '_' <|> letter <|> digit))
+variable = T.pack <$> ((:) <$> (char '_' <|> letter) <*> many (char '_' <|> alphaNum))
 
 int :: Stream s m Char => ParsecT s u m Int
 int = read <$> some digit
@@ -149,4 +149,4 @@ block :: String -> (Expression -> [Instruction] -> b) -> PythonParser b
 block s f = f <$> (string s *> spaces *> expr <* spaces <* char ':' <* spaces) <*> indented (some $ try instruction)
 
 operator :: (Expression -> b) -> String -> PythonParser b
-operator f op = try $ f <$> (string op *> spaces *> expr)
+operator f o = try $ f <$> (string o *> spaces *> expr)

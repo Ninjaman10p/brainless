@@ -1,56 +1,43 @@
-{-# LANGUAGE OverloadedStrings, FlexibleContexts, TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
 module Main (main) where
 
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import Control.Arrow
-import Data.Maybe
-import Control.Monad.State.Class
-import Control.Monad.State.Lazy
-import qualified Data.Map.Strict as M
-import Data.Char
-import Control.Lens hiding (uncons)
-import System.Environment
-import Control.Concurrent (threadDelay)
-import Safe (readMay)
-import qualified Data.Set as S
-import Data.List (uncons)
-import qualified Data.Sequence as Seq
-import Data.Sequence (Seq)
-import Python
-
-data PrettyPrintStyle = BlockStyle Int
-                      | CircleStyle Int
-                      | DiscStyle Int
-                      | TemplateStyle Text
-                      | NoStyle
-                      | Unknown
-  deriving Show
+import           Control.Arrow
+import           Control.Concurrent        (threadDelay)
+import           Control.Lens              hiding (uncons)
+import           Control.Monad.State.Class
+import           Control.Monad.State.Lazy
+import           Data.Char
+import           Data.List                 (uncons)
+import qualified Data.Map.Strict           as M
+import           Data.Maybe
+import           Data.Sequence             (Seq)
+import qualified Data.Sequence             as Seq
+import qualified Data.Set                  as S
+import           Data.Text                 (Text)
+import qualified Data.Text                 as T
+import qualified Data.Text.IO              as T
+import           PrettyPrinter
+import           Python
+import           Safe                      (readMay)
+import           System.Environment
 
 data VType = VString | VInt
   deriving (Show, Eq, Ord)
 
 data ProgState = ProgState
-  { _bfOutput :: Seq Char
-  , _astInput :: Program
+  { _bfOutput   :: Seq Char
+  , _astInput   :: Program
   , _pointerLoc :: Int
-  , _vars :: M.Map Variable (VType, Int)
-  , _allocPtr :: Int
+  , _vars       :: M.Map Variable (VType, Int)
+  , _allocPtr   :: Int
   , _tempVarPtr :: Int
-  , _strLength :: Int
-  , _freed :: S.Set (Int, Int)
+  , _strLength  :: Int
+  , _freed      :: S.Set (Int, Int)
   }
 $(makeLenses ''ProgState)
-
-  {-
-data ParseState = ParseState
-  { _tInput :: Text
-  , _astOutput :: Program
-  , _iStack :: [Program -> Program]
-  }
-$(makeLenses ''ParseState)
- -}
 
 tmpVar :: Int -> Variable
 tmpVar n = "__tmp__" <> T.pack (show n)
@@ -74,7 +61,7 @@ main = do
                     Just "discs" -> DiscStyle $ getNumOpt "radius" 10 args
                     Just "dna" -> TemplateStyle defTemplate
                     Just "dna-curtains" -> TemplateStyle dnaCurtains
-                    Just _ -> Unknown
+                    Just _ -> error "Unknown Style"
       let delay = getNumOpt "delay" 0 args
       let strLen = getNumOpt "string-length" 64 args
       let compiled = prettyPrint style $ compileBf strLen src
@@ -84,7 +71,7 @@ main = do
           T.putStrLn line
       case getStrOpt "outfile" args of
         Just ofp -> T.writeFile ofp compiled
-        Nothing -> return ()
+        Nothing  -> return ()
 
 defTemplate :: Text
 defTemplate = T.unlines
@@ -155,46 +142,12 @@ getBoolOpt _ b [] = b
 
 getFileTarget :: [String] -> Maybe String
 getFileTarget (('-':'-':_):css) = getFileTarget css
-getFileTarget (cs:_) = Just cs
-getFileTarget [] = Nothing
+getFileTarget (cs:_)            = Just cs
+getFileTarget []                = Nothing
 
 {----------------------
  - Pretty print bf
  ---------------------}
-
-prettyPrint :: PrettyPrintStyle -> Text -> Text
-prettyPrint _ "" = ""
-prettyPrint (DiscStyle radius) cs =
-  let xA = [-2*radius .. 2*radius]
-      yA = [-radius .. radius]
-      coords = fmap (mapM (,) xA) yA :: [[(Int, Int)]]
-      two = 2 :: Int
-      p (x, y) =
-        if x^two + (2*y)^two <= (2*radius)^two
-          then '.' else ' '
-      style = TemplateStyle $ (T.unlines . fmap (T.pack . fmap p) $ coords) <> "\n"
-  in prettyPrint style cs
-prettyPrint (CircleStyle radius) cs =
-  let xA = [-2*radius .. 2*radius]
-      yA = [-radius .. radius] :: [Int]
-      two = 2 :: Int
-      coords = fmap (mapM (,) xA) yA :: [[(Int, Int)]]
-      p (x, y) =
-        if x^two + (2*y)^two <= (2*radius)^two && 2*(x^two + (2*y)^two) >= (2*radius)^two
-          then '.' else ' '
-      style = TemplateStyle $ (T.unlines . fmap (T.pack . fmap p) $ coords) <> "\n"
-  in prettyPrint style cs
-prettyPrint (BlockStyle width) cs =
-  prettyPrint (TemplateStyle $ T.pack (replicate width '.') <> "\n") cs
-prettyPrint (TemplateStyle template) cs' = changeText (_templatePrint []) cs'
-  where stemplate = T.unpack template
-        _templatePrint _ "" = ""
-        _templatePrint (' ':ts) cs = ' ':_templatePrint ts cs
-        _templatePrint ('\n':ts) cs = '\n' : _templatePrint ts cs
-        _templatePrint (_:ts) (c:cs) = c:_templatePrint ts cs
-        _templatePrint [] cs = _templatePrint stemplate cs
-prettyPrint NoStyle cs = cs
-prettyPrint _ _ = error "unknown style"
 
 compileBf :: Int -> Text -> Text
 compileBf strLen = compileAST strLen . either (error . show) id . parsePython file "source file"
@@ -206,7 +159,7 @@ compileBf strLen = compileAST strLen . either (error . show) id . parsePython fi
 compileAST :: Int -> Program -> Text
 compileAST strLen p = T.pack
                     <<< foldr (:) []
-                    <<< view bfOutput 
+                    <<< view bfOutput
                     <<< execState compileASTM $ ProgState
   { _bfOutput = ""
   , _astInput = p
@@ -222,8 +175,7 @@ compileASTM :: MonadState ProgState m => m ()
 compileASTM = do
   -- errorTmp <- view astInput <$> get
   -- error $ show errorTmp
-  p <- popCmd
-  case p of
+  popCmd >>= \case
     Just p' -> do
       case p' of
         Print e -> do
@@ -350,7 +302,7 @@ calculateExpr (ELt a b) = do
             shiftTo $ aptr + 1
             writeBf "-"
           shiftToVar acpy
-          writeBf ">>[[-<+>]>]<<[<]" -- shift all of a left
+          writeBf ">>[[-<+>]>]<<[<]" -- shift all of `a` left
 
           shiftTo $ bptr + 1
           bfLoop $ do
@@ -697,7 +649,7 @@ nullify var = do
   shiftToVar var
   typ <- getVarType var
   case typ of
-    VInt -> writeBf "[-]"
+    VInt    -> writeBf "[-]"
     VString -> writeBf ">[>]<[[-]<]"
 
 repeatVar :: MonadState ProgState m => Variable -> m () -> m ()
@@ -726,7 +678,7 @@ getVarInfo :: MonadState ProgState m => Variable -> m (VType, Int)
 getVarInfo var = do
   st <- get
   case st^.vars.at var of
-    Just i -> return i
+    Just i  -> return i
     Nothing -> error $ "Undefined variable: " <> T.unpack var
 
 getVarSize :: MonadState ProgState m => Variable -> m Int
@@ -882,7 +834,7 @@ renameVar src tgt = do
 
 sizeOf :: MonadState ProgState m => VType -> m Int
 sizeOf VString = (+2) . view strLength <$> get -- account for null bytes
-sizeOf VInt = return 1
+sizeOf VInt    = return 1
 
 allocTmp :: MonadState ProgState m => VType -> m Variable
 allocTmp typ = do
@@ -906,186 +858,9 @@ free var = do
 writeBf :: MonadState ProgState m => Text -> m ()
 writeBf cs = modify $ over bfOutput (<> Seq.fromList (T.unpack cs))
 
-{----------------------
- - Parse file to AST
- ---------------------}
-
-{-
-parseSource :: Text -> Program
-parseSource cs = view astOutput . execState parseSourceM $ ParseState
-  { _tInput = cs
-  , _astOutput = []
-  , _iStack = []
-  }
-
-parseSourceM :: MonadState ParseState m => m ()
-parseSourceM = do
-  st <- get
-  let (line, ls) = second (maybe "" snd . T.uncons) . T.breakOn "\n" $ st^.tInput
-  let expectedIndent = 4 * length (st^.iStack)
-  if T.take expectedIndent line == T.pack (replicate expectedIndent ' ')
-    then do
-      parseLineM (T.strip line)
-      if T.strip ls == ""
-        then do
-          -- Return out of the recursion: force flattening
-          out <- view astOutput <$> get
-          modify $ set astOutput $ foldl (flip ($)) out (st^.iStack)
-        else do
-          modify $ set tInput ls
-          parseSourceM
-    else do
-      let (f:_) = st^.iStack
-      modify $ over astOutput f
-      modify $ over iStack $ drop 1
-      parseSourceM
-
-parseLineM :: MonadState ParseState m => Text -> m ()
-parseLineM line | T.take 6 line == "while " = do
-  st <- get
-  let expr = parseExpr $ T.dropEnd 1 . T.drop 6 . T.strip $ line
-  case expr of
-    Nothing -> error "Could not parse expression in while statement"
-    Just pExpr -> do
-      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . While pExpr
-      modify $ set astOutput []
-parseLineM line | T.take 3 line == "if " = do
-  st <- get
-  let expr = parseExpr $ T.dropEnd 1 . T.drop 3 . T.strip $ line
-  case expr of
-    Nothing -> error "Could not parse expression in if statement"
-    Just pExpr -> do
-      modify $ over iStack $ (:) $ (st^.astOutput <>) . return . If pExpr
-      modify $ set astOutput []
-parseLineM line | T.take 3 line == "if " = error "todo"
-parseLineM line = modify $ over astOutput (<> parseLine line)
-
-parseLine :: Text -> Program
-parseLine cs =
-  let (lcs', mrcs') = T.strip *** fmap (T.strip . snd) . T.uncons <<< T.breakOn "=" $ cs
-  in case mrcs' of
-      Just rcs' -> parseLet (T.strip lcs') (T.strip rcs')
-      Nothing -> parseExec (T.strip lcs')
-
-parseExec :: Text -> Program
-parseExec cmd | isFunCall "print" cmd = fromMaybe [] $ do
-  pExpr <- headMay $ getFunArgs cmd
-  return [ Print pExpr ]
-parseExec cmd | T.strip cmd == "" = []
-parseExec cmd | T.head (T.strip cmd) == '#' = []
-parseExec cmd = error $ "Invalid syntax: " <> show cmd
-
-isFunCall :: Text -> Text -> Bool
-isFunCall fun expr = T.take (1 + T.length fun) expr == fun <> "("
-                      && (snd <$> T.unsnoc expr) == Just ')'
-
--- partial
-getFunCall :: Text -> Maybe Expression
-getFunCall = parseExpr <=< fmap fst . T.unsnoc . snd <=< T.uncons . snd . T.breakOn "("
-
-getFunArgs :: Text -> [Expression]
-getFunArgs cs = do
-  (noClosingBracket, _) <- maybeToList . T.unsnoc . snd . T.breakOn "(" $ cs
-  (_, joinedArgs) <- maybeToList . T.uncons $ noClosingBracket
-  let breakComma '(' (n, acc, accs) = (n + 1, '(':acc, accs)
-      breakComma ')' (n, acc, accs) = (n - 1, ')':acc, accs)
-      breakComma ',' (0, acc, accs) = (0, [], acc:accs)
-      breakComma c (n, acc, accs) = (n, c:acc, accs)
-  arg <- fmap T.pack
-          <<< uncurry (:)
-          <<< view _2 &&& view _3
-          <<< foldr breakComma (0 :: Int, [], []) . T.unpack $ joinedArgs
-  maybeToList $ parseExpr (T.strip arg)
-
-parseLet :: Text -> Text -> Program
-parseLet var expr = catMaybes [Set var <$> parseExpr expr]
-
-parseExpr :: Text -> Maybe Expression
-parseExpr "" = Nothing
-parseExpr "True" = Just $ ENum 1
-parseExpr "False" = Just $ ENum 0
-parseExpr expr | isFunCall "input" expr =
-  let pExpr = getFunArgs expr
-  in Just $ EInput $ headMay pExpr
-parseExpr expr | isFunCall "add" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EAdd a b
-parseExpr expr | isFunCall "subtract" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ ESub a b
-parseExpr expr | isFunCall "mul" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EMul a b
-parseExpr expr | isFunCall "div" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EDiv a b
-parseExpr expr | isFunCall "mod" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EMod a b
-parseExpr expr | isFunCall "chr" expr = do
-  (a, _) <- uncons $ getFunArgs expr
-  return $ EChr a
-parseExpr expr | isFunCall "ord" expr = do
-  (a, _) <- uncons $ getFunArgs expr
-  return $ EOrd a
-parseExpr expr | isFunCall "str" expr = do
-  (a, _) <- uncons $ getFunArgs expr
-  return $ EStr a
-parseExpr expr | isFunCall "not" expr = do
-  (a, _) <- uncons $ getFunArgs expr
-  return $ ENot a
-parseExpr expr | isFunCall "and" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EAnd a b
-parseExpr expr | isFunCall "eq" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EEq a b
-parseExpr expr | isFunCall "geq" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EGeq a b
-parseExpr expr | isFunCall "leq" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ ELeq a b
-parseExpr expr | isFunCall "gt" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EGt a b
-parseExpr expr | isFunCall "lt" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ ELt a b
-parseExpr expr | isFunCall "or" expr = do
-  (a, r1) <- uncons $ getFunArgs expr
-  (b, _) <- uncons r1
-  return $ EOr a b
-parseExpr expr | isVString expr = Just . EString . T.tail . T.init $ expr
-parseExpr num | T.foldr ((&&) . isDigit) True num = Just . ENum . read . T.unpack $ num
-parseExpr var = Just $ EVar var
--}
-
-  {-
-isVString :: Text -> Bool
-isVString cs = fromMaybe False $ do
-  (a, _) <- T.uncons cs
-  (_, b) <- T.unsnoc cs
-  return $ a == '"' && b == '"'
-  -}
-
 {--------------------
  - Generic functions
  --------------------}
-
-changeText :: (String -> String) -> Text -> Text
-changeText f = T.pack . f . T.unpack
 
   {-
 isPrime :: Int -> Bool
